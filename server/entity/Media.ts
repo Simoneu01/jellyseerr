@@ -23,6 +23,7 @@ import {
   UpdateDateColumn,
 } from 'typeorm';
 import Issue from './Issue';
+import MediaProfileStatus from './MediaProfileStatus';
 import { MediaRequest } from './MediaRequest';
 import Season from './Season';
 
@@ -111,6 +112,15 @@ class Media {
     cascade: ['insert', 'remove'],
   })
   public requests: MediaRequest[];
+
+  @OneToMany(
+    () => MediaProfileStatus,
+    (profileStatus) => profileStatus.media,
+    {
+      cascade: true,
+    }
+  )
+  public profileStatuses: MediaProfileStatus[];
 
   @OneToMany(() => Watchlist, (watchlist) => watchlist.media)
   public watchlists: null | Watchlist[];

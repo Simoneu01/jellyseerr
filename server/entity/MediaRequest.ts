@@ -29,6 +29,7 @@ import {
   UpdateDateColumn,
 } from 'typeorm';
 import Media from './Media';
+import MediaProfileStatus from './MediaProfileStatus';
 import SeasonRequest from './SeasonRequest';
 import { User } from './User';
 
@@ -52,6 +53,7 @@ export class MediaRequest {
     const tmdb = new TheMovieDb();
     const mediaRepository = getRepository(Media);
     const requestRepository = getRepository(MediaRequest);
+    const profileStatusRepository = getRepository(MediaProfileStatus);
     const userRepository = getRepository(User);
     const settings = getSettings();
 
@@ -75,6 +77,28 @@ export class MediaRequest {
 
     if (!requestUser) {
       throw new Error('User missing from request context.');
+    }
+
+    // Resolve custom request profile settings before permission checks
+    let resolvedRequestProfileId: number | undefined;
+    if (requestBody.requestProfileId != null) {
+      const profile = settings.requestProfiles.find(
+        (p) => p.id === requestBody.requestProfileId && p.enabled
+      );
+      if (!profile) {
+        throw new RequestPermissionError(
+          'The requested custom profile does not exist or is disabled.'
+        );
+      }
+      if (
+        profile.mediaType !== 'both' &&
+        profile.mediaType !== requestBody.mediaType
+      ) {
+        throw new RequestPermissionError(
+          'This custom profile does not support the requested media type.'
+        );
+      }
+      resolvedRequestProfileId = profile.id;
     }
 
     if (
@@ -136,7 +160,10 @@ export class MediaRequest {
       media = new Media({
         tmdbId: tmdbMedia.id,
         tvdbId: requestBody.tvdbId ?? tmdbMedia.external_ids.tvdb_id,
-        status: !requestBody.is4k ? MediaStatus.PENDING : MediaStatus.UNKNOWN,
+        status:
+          !requestBody.is4k && !resolvedRequestProfileId
+            ? MediaStatus.PENDING
+            : MediaStatus.UNKNOWN,
         status4k: requestBody.is4k ? MediaStatus.PENDING : MediaStatus.UNKNOWN,
         mediaType: requestBody.mediaType,
       });
@@ -151,7 +178,11 @@ export class MediaRequest {
         throw new BlocklistedMediaError('This media is blocklisted.');
       }
 
-      if (media.status === MediaStatus.UNKNOWN && !requestBody.is4k) {
+      if (
+        media.status === MediaStatus.UNKNOWN &&
+        !requestBody.is4k &&
+        !resolvedRequestProfileId
+      ) {
         media.status = MediaStatus.PENDING;
       }
 
@@ -164,14 +195,47 @@ export class MediaRequest {
       .createQueryBuilder('request')
       .leftJoin('request.media', 'media')
       .leftJoinAndSelect('request.requestedBy', 'user')
-      .where('request.is4k = :is4k', { is4k: requestBody.is4k })
+      .where('request.is4k = :is4k', { is4k: requestBody.is4k ?? false })
       .andWhere('media.tmdbId = :tmdbId', { tmdbId: tmdbMedia.id })
       .andWhere('media.mediaType = :mediaType', {
         mediaType: requestBody.mediaType,
       })
       .getMany();
 
-    if (existing && existing.length > 0) {
+    // For custom profile requests, additionally check for an existing request
+    // with the same profile, regardless of is4k.
+    if (resolvedRequestProfileId != null) {
+      const existingProfileRequest = await requestRepository
+        .createQueryBuilder('request')
+        .leftJoin('request.media', 'media')
+        .leftJoinAndSelect('request.requestedBy', 'user')
+        .where('request.requestProfileId = :profileId', {
+          profileId: resolvedRequestProfileId,
+        })
+        .andWhere('media.tmdbId = :tmdbId', { tmdbId: tmdbMedia.id })
+        .andWhere('media.mediaType = :mediaType', {
+          mediaType: requestBody.mediaType,
+        })
+        .getMany();
+
+      if (existingProfileRequest && existingProfileRequest.length > 0) {
+        if (
+          requestBody.mediaType === MediaType.MOVIE &&
+          existingProfileRequest[0].status !== MediaRequestStatus.DECLINED &&
+          existingProfileRequest[0].status !== MediaRequestStatus.COMPLETED
+        ) {
+          logger.warn('Duplicate custom profile request for media blocked', {
+            tmdbId: tmdbMedia.id,
+            mediaType: requestBody.mediaType,
+            requestProfileId: resolvedRequestProfileId,
+            label: 'Media Request',
+          });
+          throw new DuplicateMediaRequestError(
+            'A request for this media with this custom profile already exists.'
+          );
+        }
+      }
+    } else if (existing && existing.length > 0) {
       // If there is an existing movie request that isn't declined, don't allow a new one.
       if (
         requestBody.mediaType === MediaType.MOVIE &&
@@ -211,8 +275,21 @@ export class MediaRequest {
     let rootFolder = requestBody.rootFolder;
     let profileId = requestBody.profileId;
     let tags = requestBody.tags;
+    let serverId = requestBody.serverId;
+    let languageProfileId = requestBody.languageProfileId;
 
-    if (useOverrides) {
+    // If a custom request profile is selected, resolve all settings from it.
+    // Override rules do not apply to custom profile requests.
+    if (resolvedRequestProfileId != null) {
+      const profile = settings.requestProfiles.find(
+        (p) => p.id === resolvedRequestProfileId
+      )!;
+      serverId = profile.serviceId;
+      profileId = profile.qualityProfileId;
+      rootFolder = profile.rootFolder;
+      tags = profile.tags;
+      languageProfileId = profile.languageProfileId;
+    } else if (useOverrides) {
       const defaultRadarrId = requestBody.is4k
         ? settings.radarr.findIndex((r) => r.is4k && r.isDefault)
         : settings.radarr.findIndex((r) => !r.is4k && r.isDefault);
@@ -368,14 +445,32 @@ export class MediaRequest {
           ? user
           : undefined,
         is4k: requestBody.is4k,
-        serverId: requestBody.serverId,
+        serverId,
         profileId: profileId,
         rootFolder: rootFolder,
         tags: tags,
         isAutoRequest: options.isAutoRequest ?? false,
+        requestProfileId: resolvedRequestProfileId ?? null,
       });
 
       await requestRepository.save(request);
+
+      // Track per-profile availability status
+      if (resolvedRequestProfileId != null) {
+        const existingProfileStatus = await profileStatusRepository.findOne({
+          where: { requestProfileId: resolvedRequestProfileId, media },
+        });
+        if (!existingProfileStatus) {
+          await profileStatusRepository.save(
+            new MediaProfileStatus({
+              requestProfileId: resolvedRequestProfileId,
+              media,
+              status: MediaStatus.PENDING,
+            })
+          );
+        }
+      }
+
       return request;
     } else {
       const tmdbMediaShow = tmdbMedia as Awaited<
@@ -478,10 +573,10 @@ export class MediaRequest {
           ? user
           : undefined,
         is4k: requestBody.is4k,
-        serverId: requestBody.serverId,
+        serverId,
         profileId: profileId,
         rootFolder: rootFolder,
-        languageProfileId: requestBody.languageProfileId,
+        languageProfileId,
         tags: tags,
         seasons: finalSeasons.map(
           (sn) =>
@@ -504,9 +599,27 @@ export class MediaRequest {
             })
         ),
         isAutoRequest: options.isAutoRequest ?? false,
+        requestProfileId: resolvedRequestProfileId ?? null,
       });
 
       await requestRepository.save(request);
+
+      // Track per-profile availability status
+      if (resolvedRequestProfileId != null) {
+        const existingProfileStatus = await profileStatusRepository.findOne({
+          where: { requestProfileId: resolvedRequestProfileId, media },
+        });
+        if (!existingProfileStatus) {
+          await profileStatusRepository.save(
+            new MediaProfileStatus({
+              requestProfileId: resolvedRequestProfileId,
+              media,
+              status: MediaStatus.PENDING,
+            })
+          );
+        }
+      }
+
       return request;
     }
   }
@@ -609,6 +722,9 @@ export class MediaRequest {
 
   @Column({ default: false })
   public isAutoRequest: boolean;
+
+  @Column({ nullable: true, type: 'int' })
+  public requestProfileId?: number | null;
 
   constructor(init?: Partial<MediaRequest>) {
     Object.assign(this, init);

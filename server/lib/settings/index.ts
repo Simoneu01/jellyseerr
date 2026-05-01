@@ -65,6 +65,18 @@ export interface TautulliSettings {
   externalUrl?: string;
 }
 
+export interface RequestProfile {
+  id: number;
+  name: string;
+  mediaType: 'movie' | 'tv' | 'both';
+  serviceId: number;
+  qualityProfileId?: number;
+  rootFolder?: string;
+  tags?: number[];
+  languageProfileId?: number;
+  enabled: boolean;
+}
+
 export interface DVRSettings {
   id: number;
   name: string;
@@ -378,6 +390,7 @@ export interface AllSettings {
   tautulli: TautulliSettings;
   radarr: RadarrSettings[];
   sonarr: SonarrSettings[];
+  requestProfiles: RequestProfile[];
   public: PublicSettings;
   notifications: NotificationSettings;
   jobs: Record<JobId, JobSettings>;
@@ -454,6 +467,7 @@ class Settings {
       },
       radarr: [],
       sonarr: [],
+      requestProfiles: [],
       public: {
         initialized: false,
       },
@@ -689,6 +703,14 @@ class Settings {
 
   set sonarr(data: SonarrSettings[]) {
     this.data.sonarr = data;
+  }
+
+  get requestProfiles(): RequestProfile[] {
+    return this.data.requestProfiles ?? [];
+  }
+
+  set requestProfiles(data: RequestProfile[]) {
+    this.data.requestProfiles = data;
   }
 
   get public(): PublicSettings {

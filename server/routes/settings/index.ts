@@ -43,6 +43,7 @@ import metadataRoutes from './metadata';
 import notificationRoutes from './notifications';
 import radarrRoutes from './radarr';
 import sonarrRoutes from './sonarr';
+import requestProfileRoutes from './requestProfiles';
 
 const settingsRoutes = Router();
 
