@@ -10,6 +10,7 @@ import { MediaStatus } from '@server/constants/media';
 import type { MediaRequest } from '@server/entity/MediaRequest';
 import type { NonFunctionProperties } from '@server/interfaces/api/common';
 import type { QuotaResponse } from '@server/interfaces/api/userInterfaces';
+import type { RequestProfile } from '@server/lib/settings';
 import { Permission } from '@server/lib/permissions';
 import type { MovieDetails } from '@server/models/Movie';
 import axios from 'axios';
@@ -35,6 +36,8 @@ const messages = defineMessages('components.RequestModal', {
   requestApproved: 'Request for <strong>{title}</strong> approved!',
   requesterror: 'Something went wrong while submitting the request.',
   pendingapproval: 'Your request is pending approval.',
+  requestProfile: 'Request Profile',
+  selectRequestProfile: 'None (default)',
 });
 
 interface RequestModalProps extends React.HTMLAttributes<HTMLDivElement> {
@@ -57,6 +60,9 @@ const MovieRequestModal = ({
   const [isUpdating, setIsUpdating] = useState(false);
   const [requestOverrides, setRequestOverrides] =
     useState<RequestOverrides | null>(null);
+  const [selectedProfileId, setSelectedProfileId] = useState<number | null>(
+    null
+  );
   const { addToast } = useToasts();
   const { data, error } = useSWR<MovieDetails>(`/api/v1/movie/${tmdbId}`, {
     revalidateOnMount: true,
@@ -68,6 +74,12 @@ const MovieRequestModal = ({
       (!requestOverrides?.user?.id || hasPermission(Permission.MANAGE_USERS))
       ? `/api/v1/user/${requestOverrides?.user?.id ?? user.id}/quota`
       : null
+  );
+  const { data: requestProfiles } = useSWR<RequestProfile[]>(
+    '/api/v1/settings/request-profiles'
+  );
+  const movieProfiles = requestProfiles?.filter(
+    (p) => p.enabled && (p.mediaType === 'movie' || p.mediaType === 'both')
   );
 
   useEffect(() => {
@@ -81,7 +93,7 @@ const MovieRequestModal = ({
 
     try {
       let overrideParams = {};
-      if (requestOverrides) {
+      if (requestOverrides && !selectedProfileId) {
         overrideParams = {
           serverId: requestOverrides.server,
           profileId: requestOverrides.profile,
@@ -89,11 +101,16 @@ const MovieRequestModal = ({
           userId: requestOverrides.user?.id,
           tags: requestOverrides.tags,
         };
+      } else if (requestOverrides?.user?.id) {
+        overrideParams = { userId: requestOverrides.user.id };
       }
       const response = await axios.post<MediaRequest>('/api/v1/request', {
         mediaId: data?.id,
         mediaType: 'movie',
         is4k,
+        ...(selectedProfileId != null
+          ? { requestProfileId: selectedProfileId }
+          : {}),
         ...overrideParams,
       });
       mutate('/api/v1/request?filter=all&take=10&sort=modified&skip=0');
@@ -134,6 +151,7 @@ const MovieRequestModal = ({
     }
   }, [
     requestOverrides,
+    selectedProfileId,
     data?.id,
     data?.title,
     is4k,
@@ -354,16 +372,42 @@ const MovieRequestModal = ({
           }
         />
       )}
-      {(hasPermission(Permission.REQUEST_ADVANCED) ||
-        hasPermission(Permission.MANAGE_REQUESTS)) && (
-        <AdvancedRequester
-          type="movie"
-          is4k={is4k}
-          onChange={(overrides) => {
-            setRequestOverrides(overrides);
-          }}
-        />
+      {movieProfiles && movieProfiles.length > 0 && (
+        <div className="mt-4">
+          <label className="mb-1 block text-sm font-bold text-gray-400">
+            {intl.formatMessage(messages.requestProfile)}
+          </label>
+          <select
+            className="w-full rounded-md bg-gray-700 px-3 py-2 text-sm text-white"
+            value={selectedProfileId ?? ''}
+            onChange={(e) =>
+              setSelectedProfileId(
+                e.target.value ? Number(e.target.value) : null
+              )
+            }
+          >
+            <option value="">
+              {intl.formatMessage(messages.selectRequestProfile)}
+            </option>
+            {movieProfiles.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name}
+              </option>
+            ))}
+          </select>
+        </div>
       )}
+      {(hasPermission(Permission.REQUEST_ADVANCED) ||
+        hasPermission(Permission.MANAGE_REQUESTS)) &&
+        !selectedProfileId && (
+          <AdvancedRequester
+            type="movie"
+            is4k={is4k}
+            onChange={(overrides) => {
+              setRequestOverrides(overrides);
+            }}
+          />
+        )}
     </Modal>
   );
 };

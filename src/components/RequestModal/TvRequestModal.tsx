@@ -15,6 +15,7 @@ import type { MediaRequest } from '@server/entity/MediaRequest';
 import type SeasonRequest from '@server/entity/SeasonRequest';
 import type { NonFunctionProperties } from '@server/interfaces/api/common';
 import type { QuotaResponse } from '@server/interfaces/api/userInterfaces';
+import type { RequestProfile } from '@server/lib/settings';
 import { Permission } from '@server/lib/permissions';
 import type { TvDetails } from '@server/models/Tv';
 import axios from 'axios';
@@ -50,6 +51,8 @@ const messages = defineMessages('components.RequestModal', {
   autoapproval: 'Automatic Approval',
   requesterror: 'Something went wrong while submitting the request.',
   pendingapproval: 'Your request is pending approval.',
+  requestProfile: 'Request Profile',
+  selectRequestProfile: 'None (default)',
 });
 
 interface RequestModalProps extends React.HTMLAttributes<HTMLDivElement> {
@@ -80,6 +83,9 @@ const TvRequestModal = ({
   const [selectedSeasons, setSelectedSeasons] = useState<number[]>(
     editRequest ? editingSeasons : []
   );
+  const [selectedProfileId, setSelectedProfileId] = useState<number | null>(
+    null
+  );
   const intl = useIntl();
   const { user, hasPermission } = useUser();
   const [searchModal, setSearchModal] = useState<{
@@ -93,6 +99,12 @@ const TvRequestModal = ({
       (!requestOverrides?.user?.id || hasPermission(Permission.MANAGE_USERS))
       ? `/api/v1/user/${requestOverrides?.user?.id ?? user.id}/quota`
       : null
+  );
+  const { data: requestProfiles } = useSWR<RequestProfile[]>(
+    '/api/v1/settings/request-profiles'
+  );
+  const tvProfiles = requestProfiles?.filter(
+    (p) => p.enabled && (p.mediaType === 'tv' || p.mediaType === 'both')
   );
 
   const currentlyRemaining =
@@ -184,7 +196,7 @@ const TvRequestModal = ({
 
     try {
       let overrideParams = {};
-      if (requestOverrides) {
+      if (requestOverrides && !selectedProfileId) {
         overrideParams = {
           serverId: requestOverrides.server,
           profileId: requestOverrides.profile,
@@ -193,12 +205,17 @@ const TvRequestModal = ({
           userId: requestOverrides?.user?.id,
           tags: requestOverrides.tags,
         };
+      } else if (requestOverrides?.user?.id) {
+        overrideParams = { userId: requestOverrides.user.id };
       }
       const response = await axios.post<MediaRequest>('/api/v1/request', {
         mediaId: data?.id,
         tvdbId: tvdbId ?? data?.externalIds.tvdbId,
         mediaType: 'tv',
         is4k,
+        ...(selectedProfileId != null
+          ? { requestProfileId: selectedProfileId }
+          : {}),
         seasons: settings.currentSettings.partialRequestsEnabled
           ? selectedSeasons.sort((a, b) => a - b)
           : getAllSeasons().filter(
@@ -734,6 +751,31 @@ const TvRequestModal = ({
               : undefined
           }
         />
+      )}
+      {!editRequest && tvProfiles && tvProfiles.length > 0 && (
+        <div className="mt-4">
+          <label className="mb-1 block text-sm font-bold text-gray-400">
+            {intl.formatMessage(messages.requestProfile)}
+          </label>
+          <select
+            className="w-full rounded-md bg-gray-700 px-3 py-2 text-sm text-white"
+            value={selectedProfileId ?? ''}
+            onChange={(e) =>
+              setSelectedProfileId(
+                e.target.value ? Number(e.target.value) : null
+              )
+            }
+          >
+            <option value="">
+              {intl.formatMessage(messages.selectRequestProfile)}
+            </option>
+            {tvProfiles.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name}
+              </option>
+            ))}
+          </select>
+        </div>
       )}
     </Modal>
   );
