@@ -1,14 +1,10 @@
 import StatusBadge from '@app/components/StatusBadge';
+import globalMessages from '@app/i18n/globalMessages';
 import { MediaStatus } from '@server/constants/media';
 import type MediaServiceStatus from '@server/entity/MediaServiceStatus';
 import type { ServiceCommonServer } from '@server/interfaces/api/serviceInterfaces';
+import { useIntl } from 'react-intl';
 import useSWR from 'swr';
-
-const STATUS_LABEL: Partial<Record<MediaStatus, string>> = {
-  [MediaStatus.AVAILABLE]: 'Available',
-  [MediaStatus.PARTIALLY_AVAILABLE]: 'Partially Available',
-  [MediaStatus.PROCESSING]: 'Processing',
-};
 
 interface ServiceStatusBadgesProps {
   serviceStatuses?: MediaServiceStatus[];
@@ -23,6 +19,7 @@ const ServiceStatusBadges = ({
   plexUrl,
   tmdbId,
 }: ServiceStatusBadgesProps) => {
+  const intl = useIntl();
   const { data: services } = useSWR<ServiceCommonServer[]>(
     serviceStatuses?.length
       ? `/api/v1/service/${mediaType === 'movie' ? 'radarr' : 'sonarr'}`
@@ -30,6 +27,19 @@ const ServiceStatusBadges = ({
   );
 
   if (!services || !serviceStatuses?.length) return null;
+
+  const statusLabel = (status: MediaStatus): string => {
+    switch (status) {
+      case MediaStatus.AVAILABLE:
+        return intl.formatMessage(globalMessages.available);
+      case MediaStatus.PARTIALLY_AVAILABLE:
+        return intl.formatMessage(globalMessages.partiallyavailable);
+      case MediaStatus.PROCESSING:
+        return intl.formatMessage(globalMessages.processing);
+      default:
+        return '';
+    }
+  };
 
   const items = serviceStatuses
     .filter(
@@ -54,7 +64,7 @@ const ServiceStatusBadges = ({
         <StatusBadge
           key={`service-badge-${server.id}`}
           status={status}
-          statusLabelOverride={`${STATUS_LABEL[status] ?? 'In'} in ${server.buttonLabel ?? server.name}`}
+          statusLabelOverride={`${statusLabel(status)} in ${server.buttonLabel ?? server.name}`}
           mediaType={mediaType}
           plexUrl={plexUrl}
           tmdbId={tmdbId}
