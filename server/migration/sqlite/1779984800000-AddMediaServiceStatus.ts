@@ -1,14 +1,14 @@
 import type { MigrationInterface, QueryRunner } from 'typeorm';
 
-export class AddMediaServiceStatus1778284800000 implements MigrationInterface {
+export class AddMediaServiceStatus1779984800000 implements MigrationInterface {
   public async up(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.query(`
       CREATE TABLE IF NOT EXISTS "media_service_status" (
-        "id" SERIAL PRIMARY KEY,
+        "id" integer PRIMARY KEY AUTOINCREMENT NOT NULL,
         "mediaId" integer NOT NULL,
         "serviceId" integer NOT NULL,
         "serviceType" varchar NOT NULL,
-        "status" integer NOT NULL DEFAULT 0,
+        "status" integer NOT NULL DEFAULT (0),
         "externalServiceId" integer NULL,
         "externalServiceSlug" varchar NULL,
         "seasonStatuses" text NULL,
@@ -17,10 +17,10 @@ export class AddMediaServiceStatus1778284800000 implements MigrationInterface {
       )
     `);
     await queryRunner.query(
-      `CREATE INDEX IF NOT EXISTS "IDX_media_service_status_mediaId" ON "media_service_status" ("mediaId")`
+      `CREATE INDEX "IDX_media_service_status_mediaId" ON "media_service_status" ("mediaId")`
     );
     await queryRunner.query(
-      `CREATE INDEX IF NOT EXISTS "IDX_media_service_status_serviceId" ON "media_service_status" ("serviceId")`
+      `CREATE INDEX "IDX_media_service_status_serviceId" ON "media_service_status" ("serviceId")`
     );
   }
 
