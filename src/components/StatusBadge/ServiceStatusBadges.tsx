@@ -6,7 +6,7 @@ import useSWR from 'swr';
 
 const STATUS_LABEL: Partial<Record<MediaStatus, string>> = {
   [MediaStatus.AVAILABLE]: 'Available',
-  [MediaStatus.PARTIALLY_AVAILABLE]: 'Partial',
+  [MediaStatus.PARTIALLY_AVAILABLE]: 'Partially Available',
   [MediaStatus.PROCESSING]: 'Processing',
 };
 
