@@ -2,6 +2,7 @@ import TheMovieDb from '@server/api/themoviedb';
 import { MediaStatus, MediaType } from '@server/constants/media';
 import { getRepository } from '@server/datasource';
 import Media from '@server/entity/Media';
+import MediaServiceStatus from '@server/entity/MediaServiceStatus';
 import Season from '@server/entity/Season';
 import { getSettings } from '@server/lib/settings';
 import logger from '@server/logger';
@@ -206,6 +207,24 @@ class BaseScanner<T> {
         } else {
           this.log(`Title already exists and no changes detected for ${title}`);
         }
+
+        // Update per-service availability tracking
+        if (serviceId !== undefined) {
+          const serviceStatus =
+            !processing && hasFile
+              ? MediaStatus.AVAILABLE
+              : processing
+                ? MediaStatus.PROCESSING
+                : MediaStatus.UNKNOWN;
+          await this.upsertServiceStatus(
+            existing.id,
+            serviceId,
+            'radarr',
+            serviceStatus,
+            externalServiceId,
+            externalServiceSlug
+          );
+        }
       } else {
         if (!processing && !hasFile) {
           return;
@@ -253,6 +272,24 @@ class BaseScanner<T> {
 
         await mediaRepository.save(newMedia);
         this.log(`Saved new media: ${title}`);
+
+        // Record per-service availability for the new media entry
+        if (serviceId !== undefined && newMedia.id) {
+          const serviceStatus =
+            !processing && hasFile
+              ? MediaStatus.AVAILABLE
+              : processing
+                ? MediaStatus.PROCESSING
+                : MediaStatus.UNKNOWN;
+          await this.upsertServiceStatus(
+            newMedia.id,
+            serviceId,
+            'radarr',
+            serviceStatus,
+            externalServiceId,
+            externalServiceSlug
+          );
+        }
       }
     });
   }
@@ -523,6 +560,26 @@ class BaseScanner<T> {
                   : MediaStatus.UNKNOWN;
         await mediaRepository.save(media);
         this.log(`Updating existing title: ${title}`);
+
+        // Update per-service availability for this Sonarr instance
+        if (serviceId !== undefined) {
+          const serviceStatus =
+            media.status === MediaStatus.AVAILABLE
+              ? MediaStatus.AVAILABLE
+              : media.status === MediaStatus.PARTIALLY_AVAILABLE
+                ? MediaStatus.PARTIALLY_AVAILABLE
+                : media.status === MediaStatus.PROCESSING
+                  ? MediaStatus.PROCESSING
+                  : MediaStatus.UNKNOWN;
+          await this.upsertServiceStatus(
+            media.id,
+            serviceId,
+            'sonarr',
+            serviceStatus,
+            externalServiceId,
+            externalServiceSlug
+          );
+        }
       } else {
         // For new media, check actual newSeasons objects instead of scanner
         // input to determine overall availability status
@@ -625,6 +682,26 @@ class BaseScanner<T> {
         });
         await mediaRepository.save(newMedia);
         this.log(`Saved ${title}`);
+
+        // Record per-service availability for the new TV media entry
+        if (serviceId !== undefined && newMedia.id) {
+          const serviceStatus =
+            newMedia.status === MediaStatus.AVAILABLE
+              ? MediaStatus.AVAILABLE
+              : newMedia.status === MediaStatus.PARTIALLY_AVAILABLE
+                ? MediaStatus.PARTIALLY_AVAILABLE
+                : newMedia.status === MediaStatus.PROCESSING
+                  ? MediaStatus.PROCESSING
+                  : MediaStatus.UNKNOWN;
+          await this.upsertServiceStatus(
+            newMedia.id,
+            serviceId,
+            'sonarr',
+            serviceStatus,
+            externalServiceId,
+            externalServiceSlug
+          );
+        }
       }
     });
   }
@@ -733,6 +810,35 @@ class BaseScanner<T> {
     optional?: Record<string, unknown>
   ): void {
     logger[level](message, { label: this.scannerName, ...optional });
+  }
+
+  protected async upsertServiceStatus(
+    mediaId: number,
+    serviceId: number,
+    serviceType: 'radarr' | 'sonarr',
+    status: MediaStatus,
+    externalServiceId: number | undefined,
+    externalServiceSlug: string | undefined
+  ): Promise<void> {
+    const repo = getRepository(MediaServiceStatus);
+    const existing = await repo.findOne({ where: { mediaId, serviceId } });
+    if (existing) {
+      existing.status = status;
+      existing.externalServiceId = externalServiceId ?? null;
+      existing.externalServiceSlug = externalServiceSlug ?? null;
+      await repo.save(existing);
+    } else {
+      await repo.save(
+        new MediaServiceStatus({
+          mediaId,
+          serviceId,
+          serviceType,
+          status,
+          externalServiceId: externalServiceId ?? null,
+          externalServiceSlug: externalServiceSlug ?? null,
+        })
+      );
+    }
   }
 
   get protectedUpdateRate(): number {

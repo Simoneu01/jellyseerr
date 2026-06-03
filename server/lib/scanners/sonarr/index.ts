@@ -10,6 +10,7 @@ import type {
 import { MediaStatus, MediaType } from '@server/constants/media';
 import { getRepository } from '@server/datasource';
 import Media from '@server/entity/Media';
+import MediaServiceStatus from '@server/entity/MediaServiceStatus';
 import type {
   ProcessableSeason,
   RunnableScanner,
@@ -19,6 +20,7 @@ import BaseScanner from '@server/lib/scanners/baseScanner';
 import type { SonarrSettings } from '@server/lib/settings';
 import { getSettings } from '@server/lib/settings';
 import { uniqWith } from 'lodash';
+import { In } from 'typeorm';
 
 type SyncStatus = StatusBase & {
   currentServer: SonarrSettings;
@@ -34,6 +36,7 @@ class SonarrScanner
   private sonarrApi: SonarrAPI;
   private scannedTvdbIds: Set<number> = new Set();
   private scanned4kTvdbIds: Set<number> = new Set();
+  private currentServerTmdbIds: Set<number> = new Set();
   private didScanStandard = false;
   private didScan4k = false;
 
@@ -82,6 +85,7 @@ class SonarrScanner
           });
 
           this.items = await this.sonarrApi.getSeries();
+          this.currentServerTmdbIds = new Set();
 
           const server4k = this.enable4kShow && server.is4k;
           if (server4k) {
@@ -91,6 +95,7 @@ class SonarrScanner
           }
 
           await this.loop(this.processSonarrSeries.bind(this), { sessionId });
+          await this.resetStaleServiceStatus(server);
         } else {
           this.log(`Sync not enabled. Skipping Sonarr server: ${server.name}`);
         }
@@ -149,6 +154,8 @@ class SonarrScanner
       }
 
       const tmdbId = tvShow.id;
+      this.currentServerTmdbIds.add(tmdbId);
+
       const metadataProvider = tvShow.keywords.results.some(
         (keyword: TmdbKeyword) => keyword.id === ANIME_KEYWORD_ID
       )
@@ -210,6 +217,52 @@ class SonarrScanner
         title: sonarrSeries.title,
       });
     }
+  }
+
+  private async resetStaleServiceStatus(server: SonarrSettings): Promise<void> {
+    const mediaRepository = getRepository(Media);
+    const serviceStatusRepository = getRepository(MediaServiceStatus);
+
+    if (this.currentServerTmdbIds.size === 0) {
+      await serviceStatusRepository
+        .createQueryBuilder()
+        .update()
+        .set({ status: MediaStatus.UNKNOWN })
+        .where('serviceId = :serviceId', { serviceId: server.id })
+        .andWhere('status NOT IN (:...exempt)', {
+          exempt: [MediaStatus.UNKNOWN, MediaStatus.DELETED],
+        })
+        .execute();
+      return;
+    }
+
+    const scannedMedia = await mediaRepository.find({
+      where: {
+        tmdbId: In([...this.currentServerTmdbIds]),
+        mediaType: MediaType.TV,
+      },
+      select: ['id'],
+    });
+    const scannedMediaIds = scannedMedia.map((m) => m.id);
+
+    await serviceStatusRepository
+      .createQueryBuilder()
+      .update()
+      .set({ status: MediaStatus.UNKNOWN })
+      .where('serviceId = :serviceId', { serviceId: server.id })
+      .andWhere('status NOT IN (:...exempt)', {
+        exempt: [MediaStatus.UNKNOWN, MediaStatus.DELETED],
+      })
+      .andWhere(
+        scannedMediaIds.length > 0 ? 'mediaId NOT IN (:...mediaIds)' : '1=1',
+        { mediaIds: scannedMediaIds }
+      )
+      .execute();
+
+    this.log(
+      `Reset stale service status for ${server.name} (${scannedMediaIds.length} items retained)`,
+      'info'
+    );
   }
 
   private async cleanupOrphanedShows(): Promise<void> {

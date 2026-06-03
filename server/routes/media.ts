@@ -213,32 +213,44 @@ mediaRoutes.delete(
 
       const is4k = String(req.query.is4k) === 'true';
       const isMovie = media.mediaType === MediaType.MOVIE;
+      // Optional explicit serviceId (for per-service delete from a specific instance)
+      const explicitServiceId = req.query.serviceId
+        ? Number(req.query.serviceId)
+        : undefined;
 
       let serviceSettings;
-      if (isMovie) {
-        serviceSettings = settings.radarr.find(
-          (radarr) => radarr.isDefault && radarr.is4k === is4k
-        );
-      } else {
-        serviceSettings = settings.sonarr.find(
-          (sonarr) => sonarr.isDefault && sonarr.is4k === is4k
-        );
-      }
 
-      const specificServiceId = is4k ? media.serviceId4k : media.serviceId;
-      if (
-        specificServiceId &&
-        specificServiceId >= 0 &&
-        serviceSettings?.id !== specificServiceId
-      ) {
+      if (explicitServiceId !== undefined && explicitServiceId >= 0) {
+        // Caller specified exactly which service to delete from
+        serviceSettings = isMovie
+          ? settings.radarr.find((r) => r.id === explicitServiceId)
+          : settings.sonarr.find((s) => s.id === explicitServiceId);
+      } else {
         if (isMovie) {
           serviceSettings = settings.radarr.find(
-            (radarr) => radarr.id === specificServiceId
+            (radarr) => radarr.isDefault && radarr.is4k === is4k
           );
         } else {
           serviceSettings = settings.sonarr.find(
-            (sonarr) => sonarr.id === specificServiceId
+            (sonarr) => sonarr.isDefault && sonarr.is4k === is4k
           );
+        }
+
+        const specificServiceId = is4k ? media.serviceId4k : media.serviceId;
+        if (
+          specificServiceId &&
+          specificServiceId >= 0 &&
+          serviceSettings?.id !== specificServiceId
+        ) {
+          if (isMovie) {
+            serviceSettings = settings.radarr.find(
+              (radarr) => radarr.id === specificServiceId
+            );
+          } else {
+            serviceSettings = settings.sonarr.find(
+              (sonarr) => sonarr.id === specificServiceId
+            );
+          }
         }
       }
 

@@ -119,26 +119,6 @@ export class MediaRequest {
       throw new QuotaRestrictedError('Series Quota exceeded.');
     }
 
-    const requestProfileId = requestBody.requestProfileId ?? null;
-
-    if (requestProfileId !== null) {
-      const profile = settings.requestProfiles.find(
-        (p) => p.id === requestProfileId
-      );
-      if (!profile) {
-        throw new Error(`Request profile ${requestProfileId} not found.`);
-      }
-      const profileMediaType = profile.mediaType;
-      if (
-        profileMediaType !== 'both' &&
-        profileMediaType !== requestBody.mediaType
-      ) {
-        throw new Error(
-          `Request profile "${profile.name}" does not support ${requestBody.mediaType} requests.`
-        );
-      }
-    }
-
     const tmdbMedia =
       requestBody.mediaType === MediaType.MOVIE
         ? await tmdb.getMovie({ movieId: requestBody.mediaId })
@@ -152,18 +132,19 @@ export class MediaRequest {
       relations: ['requests'],
     });
 
+    // A request targeting a specific service does not affect the Standard/4K
+    // media status slots — those remain meaningful only for the default servers.
+    const isServiceSpecific =
+      requestBody.serverId !== undefined &&
+      requestBody.serverId !== null &&
+      requestBody.serverId >= 0;
+
     if (!media) {
       media = new Media({
         tmdbId: tmdbMedia.id,
         tvdbId: requestBody.tvdbId ?? tmdbMedia.external_ids.tvdb_id,
-        status:
-          !requestProfileId && !requestBody.is4k
-            ? MediaStatus.PENDING
-            : MediaStatus.UNKNOWN,
-        status4k:
-          !requestProfileId && requestBody.is4k
-            ? MediaStatus.PENDING
-            : MediaStatus.UNKNOWN,
+        status: !requestBody.is4k ? MediaStatus.PENDING : MediaStatus.UNKNOWN,
+        status4k: requestBody.is4k ? MediaStatus.PENDING : MediaStatus.UNKNOWN,
         mediaType: requestBody.mediaType,
       });
     } else {
@@ -177,41 +158,35 @@ export class MediaRequest {
         throw new BlocklistedMediaError('This media is blocklisted.');
       }
 
-      if (
-        (media.status === MediaStatus.UNKNOWN ||
-          media.status === MediaStatus.DELETED) &&
-        !requestBody.is4k
-       && !requestProfileId) {
+      if (media.status === MediaStatus.UNKNOWN && !requestBody.is4k) {
         media.status = MediaStatus.PENDING;
       }
 
-      if (
-        (media.status4k === MediaStatus.UNKNOWN ||
-          media.status4k === MediaStatus.DELETED) &&
-        requestBody.is4k
-       && !requestProfileId) {
+      if (media.status4k === MediaStatus.UNKNOWN && requestBody.is4k) {
         media.status4k = MediaStatus.PENDING;
       }
     }
 
+    // Duplicate detection:
+    // - When a specific service is targeted (serverId set), one request per service is allowed.
+    // - For default routing (no explicit serverId), one request per is4k slot is allowed.
     const existingQuery = requestRepository
       .createQueryBuilder('request')
-      .leftJoinAndSelect('request.media', 'media')
+      .leftJoin('request.media', 'media')
       .leftJoinAndSelect('request.requestedBy', 'user')
       .andWhere('media.tmdbId = :tmdbId', { tmdbId: tmdbMedia.id })
       .andWhere('media.mediaType = :mediaType', {
         mediaType: requestBody.mediaType,
       });
 
-    if (requestProfileId !== null) {
-      existingQuery.where(
-        'request.requestProfileId = :requestProfileId',
-        { requestProfileId }
-      );
+    if (isServiceSpecific) {
+      existingQuery.where('request.serverId = :serverId', {
+        serverId: requestBody.serverId,
+      });
     } else {
-      existingQuery
-        .where('request.is4k = :is4k', { is4k: requestBody.is4k })
-        .andWhere('request.requestProfileId IS NULL');
+      existingQuery.where('request.is4k = :is4k', {
+        is4k: requestBody.is4k ?? false,
+      });
     }
 
     const existing = await existingQuery.getMany();
@@ -260,18 +235,9 @@ export class MediaRequest {
     let rootFolder = requestBody.rootFolder;
     let profileId = requestBody.profileId;
     let tags = requestBody.tags;
-    let serverId = requestBody.serverId;
+    const serverId = requestBody.serverId;
 
-    // Profile-based requests override all routing settings and skip override rules
-    if (requestProfileId !== null) {
-      const profile = settings.requestProfiles.find(
-        (p) => p.id === requestProfileId
-      )!;
-      serverId = profile.serviceId;
-      profileId = profile.qualityProfileId;
-      rootFolder = profile.rootFolder;
-      tags = profile.tags;
-    } else if (useOverrides) {
+    if (useOverrides) {
       const defaultRadarrId = requestBody.is4k
         ? settings.radarr.findIndex((r) => r.is4k && r.isDefault)
         : settings.radarr.findIndex((r) => !r.is4k && r.isDefault);
@@ -431,7 +397,6 @@ export class MediaRequest {
         profileId: profileId,
         rootFolder: rootFolder,
         tags: tags,
-        requestProfileId: requestProfileId,
         isAutoRequest: options.isAutoRequest ?? false,
       });
 
@@ -459,11 +424,11 @@ export class MediaRequest {
       if (media.requests) {
         existingSeasons = media.requests
           .filter((request) => {
-            const sameSlot =
-              requestProfileId !== null
-                ? request.requestProfileId === requestProfileId
-                : request.is4k === requestBody.is4k &&
-                  request.requestProfileId === null;
+            // When targeting a specific service, deduplicate by serverId.
+            // For default routing, deduplicate by is4k.
+            const sameSlot = isServiceSpecific
+              ? request.serverId === requestBody.serverId
+              : request.is4k === requestBody.is4k;
             return (
               sameSlot &&
               request.status !== MediaRequestStatus.DECLINED &&
@@ -479,9 +444,8 @@ export class MediaRequest {
           }, [] as number[]);
       }
 
-      // Check seasons available/partially available — skip for profile requests
-      // since profile-specific availability is tracked separately
-      if (media.seasons && requestProfileId === null) {
+      // We should also check seasons that are available/partially available but don't have existing requests
+      if (media.seasons) {
         existingSeasons = [
           ...existingSeasons,
           ...media.seasons
@@ -550,7 +514,6 @@ export class MediaRequest {
         rootFolder: rootFolder,
         languageProfileId: requestBody.languageProfileId,
         tags: tags,
-        requestProfileId: requestProfileId,
         seasons: finalSeasons.map(
           (sn) =>
             new SeasonRequest({
@@ -674,9 +637,6 @@ export class MediaRequest {
     },
   })
   public tags?: number[];
-
-  @Column({ nullable: true, type: 'int', default: null })
-  public requestProfileId: number | null;
 
   @Column({ default: false })
   public isAutoRequest: boolean;
