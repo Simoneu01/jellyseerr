@@ -2115,6 +2115,50 @@ components:
       required:
         - certification
 
+    RequestProfile:
+      type: object
+      required:
+        - name
+        - mediaType
+        - serviceId
+        - qualityProfileId
+        - rootFolder
+      properties:
+        id:
+          type: integer
+          example: 1
+        name:
+          type: string
+          example: 'Italian Movies'
+        mediaType:
+          type: string
+          enum:
+            - movie
+            - tv
+            - both
+          example: movie
+        serviceId:
+          type: integer
+          example: 0
+        qualityProfileId:
+          type: integer
+          example: 4
+        rootFolder:
+          type: string
+          example: /data/media/movies
+        tags:
+          type: array
+          items:
+            type: integer
+          example: []
+        icon:
+          type: string
+          nullable: true
+          example: '🎬'
+        color:
+          type: string
+          nullable: true
+          example: '#3b82f6'
     CertificationResponse:
       type: object
       properties:
@@ -3921,6 +3965,80 @@ paths:
                   appDataPath:
                     type: string
                     example: /app/config
+  /settings/request-profiles:
+    get:
+      summary: Get request profiles
+      description: Returns all request profiles in a JSON array.
+      tags:
+        - settings
+      responses:
+        '200':
+          description: Values were returned
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/RequestProfile'
+    post:
+      summary: Create request profile
+      description: Creates a new request profile from the request body.
+      tags:
+        - settings
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RequestProfile'
+      responses:
+        '201':
+          description: New request profile created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RequestProfile'
+  /settings/request-profiles/{profileId}:
+    put:
+      summary: Update request profile
+      description: Updates an existing request profile with the provided values.
+      tags:
+        - settings
+      parameters:
+        - in: path
+          name: profileId
+          required: true
+          schema:
+            type: integer
+          description: Request profile ID
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RequestProfile'
+      responses:
+        '200':
+          description: Request profile updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RequestProfile'
+    delete:
+      summary: Delete request profile
+      description: Deletes an existing request profile based on the profileId parameter.
+      tags:
+        - settings
+      parameters:
+        - in: path
+          name: profileId
+          required: true
+          schema:
+            type: integer
+          description: Request profile ID
+      responses:
+        '204':
+          description: Request profile deleted
   /auth/me:
     get:
       summary: Get logged-in user
