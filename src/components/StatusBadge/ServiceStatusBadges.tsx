@@ -63,10 +63,7 @@ const ServiceStatusBadges = ({
       }
       return { server, status };
     })
-    .filter(
-      (x): x is { server: ServiceCommonServer; status: MediaStatus } =>
-        x !== null
-    );
+    .filter((x): x is NonNullable<typeof x> => x !== null);
 
   if (!items.length) return null;
 
