@@ -17,7 +17,6 @@ import {
   Column,
   Entity,
   Index,
-  JoinColumn,
   OneToMany,
   OneToOne,
   PrimaryGeneratedColumn,
@@ -126,11 +125,13 @@ class Media {
   @OneToMany(() => Issue, (issue) => issue.media, { cascade: true })
   public issues: Issue[];
 
+  // NOTE: intentionally NOT `cascade` — service statuses are written only via
+  // the scanners/subscriber (explicit repository upserts). Cascading would cause
+  // any media save (e.g. a Plex/Jellyfin library scan) to clobber the per-service
+  // availability that was set by the Radarr/Sonarr scans.
   @OneToMany(() => MediaServiceStatus, (serviceStatus) => serviceStatus.media, {
-    cascade: true,
     eager: true,
   })
-  @JoinColumn()
   public serviceStatuses: MediaServiceStatus[];
 
   @OneToOne(() => Blocklist, (blocklist) => blocklist.media)

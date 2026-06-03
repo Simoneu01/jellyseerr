@@ -3,6 +3,7 @@ import {
   Column,
   Entity,
   Index,
+  JoinColumn,
   ManyToOne,
   PrimaryGeneratedColumn,
 } from 'typeorm';
@@ -21,6 +22,7 @@ class MediaServiceStatus {
   @ManyToOne(() => Media, (media) => media.serviceStatuses, {
     onDelete: 'CASCADE',
   })
+  @JoinColumn({ name: 'mediaId' })
   public media: Media;
 
   @Column({ type: 'int' })
