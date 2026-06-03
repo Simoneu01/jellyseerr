@@ -175,12 +175,16 @@ class RadarrScanner
     });
     const scannedMediaIds = scannedMedia.map((m) => m.id);
 
-    // Reset MediaServiceStatus rows for this server that weren't seen this scan
+    // Reset MediaServiceStatus rows for this server that weren't seen this scan.
+    // NOTE: Radarr and Sonarr server IDs are independent sequences (both start
+    // at 0), so we MUST scope by serviceType as well — otherwise a Radarr reset
+    // would clobber Sonarr rows that happen to share the same numeric serviceId.
     await serviceStatusRepository
       .createQueryBuilder()
       .update()
       .set({ status: MediaStatus.UNKNOWN })
       .where('serviceId = :serviceId', { serviceId: server.id })
+      .andWhere('serviceType = :serviceType', { serviceType: 'radarr' })
       .andWhere('status NOT IN (:...exempt)', {
         exempt: [MediaStatus.UNKNOWN, MediaStatus.DELETED],
       })

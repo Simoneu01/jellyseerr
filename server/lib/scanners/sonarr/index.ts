@@ -245,11 +245,18 @@ class SonarrScanner
     });
     const scannedMediaIds = scannedMedia.map((m) => m.id);
 
+    // Reset both the overall status AND the per-season statuses together so
+    // they can never diverge (otherwise the header badge could disappear while
+    // season badges still show as available).
+    // NOTE: Radarr and Sonarr server IDs are independent sequences (both start
+    // at 0), so we MUST scope by serviceType as well — otherwise a Sonarr reset
+    // would clobber Radarr rows that happen to share the same numeric serviceId.
     await serviceStatusRepository
       .createQueryBuilder()
       .update()
-      .set({ status: MediaStatus.UNKNOWN })
+      .set({ status: MediaStatus.UNKNOWN, seasonStatuses: null })
       .where('serviceId = :serviceId', { serviceId: server.id })
+      .andWhere('serviceType = :serviceType', { serviceType: 'sonarr' })
       .andWhere('status NOT IN (:...exempt)', {
         exempt: [MediaStatus.UNKNOWN, MediaStatus.DELETED],
       })
