@@ -61,9 +61,13 @@ export class MediaRequestSubscriber implements EntitySubscriberInterface<MediaRe
       });
     }
 
-    // Check availability using fresh media state
+    // For service-specific requests, skip the global status check — the request
+    // being COMPLETED is sufficient signal that it's available in that service.
+    if (!latestMedia) {
+      return;
+    }
     if (
-      !latestMedia ||
+      entity.serverId == null &&
       latestMedia[entity.is4k ? 'status4k' : 'status'] !== MediaStatus.AVAILABLE
     ) {
       return;
@@ -126,20 +130,23 @@ export class MediaRequestSubscriber implements EntitySubscriberInterface<MediaRe
       return;
     }
 
-    // Check availability using fresh media state
-    const requestedSeasons =
-      entity.seasons?.map((entitySeason) => entitySeason.seasonNumber) ?? [];
-    const availableSeasons = latestMedia.seasons.filter(
-      (season) =>
-        season[entity.is4k ? 'status4k' : 'status'] === MediaStatus.AVAILABLE &&
-        requestedSeasons.includes(season.seasonNumber)
-    );
-    const isMediaAvailable =
-      availableSeasons.length > 0 &&
-      availableSeasons.length === requestedSeasons.length;
-
-    if (!isMediaAvailable) {
-      return;
+    // For service-specific requests, the COMPLETED request status is enough
+    // to notify — skip the global season availability check.
+    if (entity.serverId == null) {
+      const requestedSeasons =
+        entity.seasons?.map((entitySeason) => entitySeason.seasonNumber) ?? [];
+      const availableSeasons = latestMedia.seasons.filter(
+        (season) =>
+          season[entity.is4k ? 'status4k' : 'status'] ===
+            MediaStatus.AVAILABLE &&
+          requestedSeasons.includes(season.seasonNumber)
+      );
+      const isMediaAvailable =
+        availableSeasons.length > 0 &&
+        availableSeasons.length === requestedSeasons.length;
+      if (!isMediaAvailable) {
+        return;
+      }
     }
 
     const tmdb = new TheMovieDb();
@@ -346,9 +353,21 @@ export class MediaRequestSubscriber implements EntitySubscriberInterface<MediaRe
           }
         }
 
-        if (
-          media[entity.is4k ? 'status4k' : 'status'] === MediaStatus.AVAILABLE
-        ) {
+        // For service-specific requests, only skip if THAT specific service
+        // already has the media — not just any service.
+        const isAlreadyAvailable =
+          entity.serverId != null
+            ? await (async () => {
+                const serviceStatusRepo = getRepository(MediaServiceStatus);
+                const ss = await serviceStatusRepo.findOne({
+                  where: { mediaId: media.id, serviceId: entity.serverId! },
+                });
+                return ss?.status === MediaStatus.AVAILABLE;
+              })()
+            : media[entity.is4k ? 'status4k' : 'status'] ===
+              MediaStatus.AVAILABLE;
+
+        if (isAlreadyAvailable) {
           logger.warn('Media already exists, marking request as COMPLETED', {
             label: 'Media Request',
             requestId: entity.id,
@@ -566,9 +585,19 @@ export class MediaRequestSubscriber implements EntitySubscriberInterface<MediaRe
           throw new Error('Media data not found');
         }
 
-        if (
-          media[entity.is4k ? 'status4k' : 'status'] === MediaStatus.AVAILABLE
-        ) {
+        const isAlreadyAvailableSonarr =
+          entity.serverId != null
+            ? await (async () => {
+                const serviceStatusRepo = getRepository(MediaServiceStatus);
+                const ss = await serviceStatusRepo.findOne({
+                  where: { mediaId: media.id, serviceId: entity.serverId! },
+                });
+                return ss?.status === MediaStatus.AVAILABLE;
+              })()
+            : media[entity.is4k ? 'status4k' : 'status'] ===
+              MediaStatus.AVAILABLE;
+
+        if (isAlreadyAvailableSonarr) {
           logger.warn('Media already exists, marking request as COMPLETED', {
             label: 'Media Request',
             requestId: entity.id,

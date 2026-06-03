@@ -374,11 +374,16 @@ const RequestButton = ({
   const labelledServices = (allServices ?? []).filter((s) => s.buttonLabel);
 
   for (const service of labelledServices) {
-    // If this service already has the media available, hide the request button
+    // Hide the request button if the media already exists in this service
+    // (available, processing/downloading, or partially available)
     const serviceStatusEntry = media?.serviceStatuses?.find(
       (ss) => ss.serviceId === service.id
     );
-    if (serviceStatusEntry?.status === MediaStatus.AVAILABLE) {
+    if (
+      serviceStatusEntry &&
+      serviceStatusEntry.status !== MediaStatus.UNKNOWN &&
+      serviceStatusEntry.status !== MediaStatus.DELETED
+    ) {
       continue;
     }
 
