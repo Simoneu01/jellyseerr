@@ -911,34 +911,41 @@ const TvDetails = ({ tv }: TvDetailsProps) => {
                               </div>
                             </>
                           )}
-                          {mSeason?.status ===
-                            MediaStatus.PARTIALLY_AVAILABLE && (
+                          {(mSeason?.status ===
+                            MediaStatus.PARTIALLY_AVAILABLE ||
+                            mSeason?.status === MediaStatus.AVAILABLE) && (
                             <>
-                              <div className="hidden md:flex">
-                                <Badge badgeType="success">
-                                  {intl.formatMessage(
-                                    globalMessages.partiallyavailable
-                                  )}
-                                </Badge>
+                              <div className="hidden items-center space-x-1 md:flex">
+                                {(data.mediaInfo?.serviceStatuses ?? []).some(
+                                  (ss) => {
+                                    const st =
+                                      ss.seasonStatuses?.[season.seasonNumber];
+                                    return (
+                                      st !== undefined &&
+                                      st !== MediaStatus.UNKNOWN &&
+                                      st !== MediaStatus.DELETED
+                                    );
+                                  }
+                                ) ? (
+                                  <ServiceStatusBadges
+                                    serviceStatuses={
+                                      data.mediaInfo?.serviceStatuses
+                                    }
+                                    mediaType="tv"
+                                    seasonNumber={season.seasonNumber}
+                                  />
+                                ) : (
+                                  <Badge badgeType="success">
+                                    {intl.formatMessage(
+                                      mSeason?.status === MediaStatus.AVAILABLE
+                                        ? globalMessages.available
+                                        : globalMessages.partiallyavailable
+                                    )}
+                                  </Badge>
+                                )}
                               </div>
                               <div className="flex md:hidden">
-                                <StatusBadgeMini
-                                  status={MediaStatus.PARTIALLY_AVAILABLE}
-                                />
-                              </div>
-                            </>
-                          )}
-                          {mSeason?.status === MediaStatus.AVAILABLE && (
-                            <>
-                              <div className="hidden md:flex">
-                                <Badge badgeType="success">
-                                  {intl.formatMessage(globalMessages.available)}
-                                </Badge>
-                              </div>
-                              <div className="flex md:hidden">
-                                <StatusBadgeMini
-                                  status={MediaStatus.AVAILABLE}
-                                />
+                                <StatusBadgeMini status={mSeason!.status} />
                               </div>
                             </>
                           )}

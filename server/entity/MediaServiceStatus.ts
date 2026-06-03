@@ -39,6 +39,31 @@ class MediaServiceStatus {
   @Column({ nullable: true, type: 'varchar' })
   public externalServiceSlug: string | null;
 
+  /**
+   * Per-season availability within this service, keyed by season number.
+   * Only relevant for Sonarr (TV) services. Stored as JSON text so it is
+   * database-agnostic (SQLite + Postgres).
+   */
+  @Column({
+    type: 'text',
+    nullable: true,
+    transformer: {
+      from: (value: string | null): Record<number, MediaStatus> | null => {
+        if (!value) return null;
+        try {
+          return JSON.parse(value);
+        } catch {
+          return null;
+        }
+      },
+      to: (value: Record<number, MediaStatus> | null): string | null => {
+        if (!value || Object.keys(value).length === 0) return null;
+        return JSON.stringify(value);
+      },
+    },
+  })
+  public seasonStatuses: Record<number, MediaStatus> | null;
+
   constructor(init?: Partial<MediaServiceStatus>) {
     Object.assign(this, init);
   }

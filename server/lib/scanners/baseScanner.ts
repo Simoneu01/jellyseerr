@@ -561,23 +561,21 @@ class BaseScanner<T> {
         await mediaRepository.save(media);
         this.log(`Updating existing title: ${title}`);
 
-        // Update per-service availability for this Sonarr instance
+        // Update per-service availability for this Sonarr instance, computed
+        // from this server's own season data (not the combined media.status).
         if (serviceId !== undefined) {
-          const serviceStatus =
-            media.status === MediaStatus.AVAILABLE
-              ? MediaStatus.AVAILABLE
-              : media.status === MediaStatus.PARTIALLY_AVAILABLE
-                ? MediaStatus.PARTIALLY_AVAILABLE
-                : media.status === MediaStatus.PROCESSING
-                  ? MediaStatus.PROCESSING
-                  : MediaStatus.UNKNOWN;
+          const { overall, perSeason } = this.computeSeasonServiceStatuses(
+            seasons,
+            is4k
+          );
           await this.upsertServiceStatus(
             media.id,
             serviceId,
             'sonarr',
-            serviceStatus,
+            overall,
             externalServiceId,
-            externalServiceSlug
+            externalServiceSlug,
+            perSeason
           );
         }
       } else {
@@ -683,23 +681,21 @@ class BaseScanner<T> {
         await mediaRepository.save(newMedia);
         this.log(`Saved ${title}`);
 
-        // Record per-service availability for the new TV media entry
+        // Record per-service availability for the new TV media entry, computed
+        // from this server's own season data (not the combined media.status).
         if (serviceId !== undefined && newMedia.id) {
-          const serviceStatus =
-            newMedia.status === MediaStatus.AVAILABLE
-              ? MediaStatus.AVAILABLE
-              : newMedia.status === MediaStatus.PARTIALLY_AVAILABLE
-                ? MediaStatus.PARTIALLY_AVAILABLE
-                : newMedia.status === MediaStatus.PROCESSING
-                  ? MediaStatus.PROCESSING
-                  : MediaStatus.UNKNOWN;
+          const { overall, perSeason } = this.computeSeasonServiceStatuses(
+            seasons,
+            is4k
+          );
           await this.upsertServiceStatus(
             newMedia.id,
             serviceId,
             'sonarr',
-            serviceStatus,
+            overall,
             externalServiceId,
-            externalServiceSlug
+            externalServiceSlug,
+            perSeason
           );
         }
       }
@@ -812,13 +808,77 @@ class BaseScanner<T> {
     logger[level](message, { label: this.scannerName, ...optional });
   }
 
+  /**
+   * Computes the availability status of a TV title within a single service,
+   * using only that server's per-season episode counts. Returns both the
+   * overall (rolled-up) status and a per-season status map so the frontend can
+   * show per-service badges at both the show and season level.
+   *
+   * Using the per-server season data (rather than media.status) is essential:
+   * media.status reflects the combined state across ALL servers, so a title
+   * available in one Sonarr instance would otherwise leak that status into
+   * every other instance.
+   */
+  protected computeSeasonServiceStatuses(
+    seasons: ProcessableSeason[],
+    is4k: boolean
+  ): { overall: MediaStatus; perSeason: Record<number, MediaStatus> } {
+    const episodeField = is4k ? 'episodes4k' : 'episodes';
+    const perSeason: Record<number, MediaStatus> = {};
+
+    const statusForSeason = (s: ProcessableSeason): MediaStatus => {
+      if (s.totalEpisodes > 0 && s[episodeField] === s.totalEpisodes) {
+        return MediaStatus.AVAILABLE;
+      }
+      if (s[episodeField] > 0) {
+        return MediaStatus.PARTIALLY_AVAILABLE;
+      }
+      if (s.processing) {
+        return MediaStatus.PROCESSING;
+      }
+      return MediaStatus.UNKNOWN;
+    };
+
+    for (const s of seasons) {
+      const status = statusForSeason(s);
+      // Only record seasons that this server actually has/knows about
+      if (status !== MediaStatus.UNKNOWN) {
+        perSeason[s.seasonNumber] = status;
+      }
+    }
+
+    const relevant = seasons.filter(
+      (s) => s.seasonNumber !== 0 && s.totalEpisodes > 0
+    );
+
+    let overall: MediaStatus;
+    if (relevant.length === 0) {
+      overall = MediaStatus.UNKNOWN;
+    } else if (
+      relevant.every(
+        (s) => s[episodeField] === s.totalEpisodes && s[episodeField] > 0
+      )
+    ) {
+      overall = MediaStatus.AVAILABLE;
+    } else if (relevant.some((s) => s[episodeField] > 0)) {
+      overall = MediaStatus.PARTIALLY_AVAILABLE;
+    } else if (relevant.some((s) => s.processing)) {
+      overall = MediaStatus.PROCESSING;
+    } else {
+      overall = MediaStatus.UNKNOWN;
+    }
+
+    return { overall, perSeason };
+  }
+
   protected async upsertServiceStatus(
     mediaId: number,
     serviceId: number,
     serviceType: 'radarr' | 'sonarr',
     status: MediaStatus,
     externalServiceId: number | undefined,
-    externalServiceSlug: string | undefined
+    externalServiceSlug: string | undefined,
+    seasonStatuses: Record<number, MediaStatus> | null = null
   ): Promise<void> {
     const repo = getRepository(MediaServiceStatus);
     const existing = await repo.findOne({ where: { mediaId, serviceId } });
@@ -826,6 +886,7 @@ class BaseScanner<T> {
       existing.status = status;
       existing.externalServiceId = externalServiceId ?? null;
       existing.externalServiceSlug = externalServiceSlug ?? null;
+      existing.seasonStatuses = seasonStatuses;
       await repo.save(existing);
     } else {
       await repo.save(
@@ -836,6 +897,7 @@ class BaseScanner<T> {
           status,
           externalServiceId: externalServiceId ?? null,
           externalServiceSlug: externalServiceSlug ?? null,
+          seasonStatuses,
         })
       );
     }

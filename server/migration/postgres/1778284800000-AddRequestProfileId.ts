@@ -11,6 +11,7 @@ export class AddMediaServiceStatus1778284800000 implements MigrationInterface {
         "status" integer NOT NULL DEFAULT 0,
         "externalServiceId" integer NULL,
         "externalServiceSlug" varchar NULL,
+        "seasonStatuses" text NULL,
         CONSTRAINT "UQ_media_service" UNIQUE ("mediaId", "serviceId"),
         FOREIGN KEY ("mediaId") REFERENCES "media" ("id") ON DELETE CASCADE
       )

@@ -11,6 +11,9 @@ interface ServiceStatusBadgesProps {
   mediaType: 'movie' | 'tv';
   plexUrl?: string;
   tmdbId?: number;
+  // When set, render per-season status for this season number instead of the
+  // overall show status.
+  seasonNumber?: number;
 }
 
 const ServiceStatusBadges = ({
@@ -18,6 +21,7 @@ const ServiceStatusBadges = ({
   mediaType,
   plexUrl,
   tmdbId,
+  seasonNumber,
 }: ServiceStatusBadgesProps) => {
   const intl = useIntl();
   const { data: services } = useSWR<ServiceCommonServer[]>(
@@ -42,14 +46,22 @@ const ServiceStatusBadges = ({
   };
 
   const items = serviceStatuses
-    .filter(
-      (ss) =>
-        ss.status !== MediaStatus.UNKNOWN && ss.status !== MediaStatus.DELETED
-    )
     .map((ss) => {
       const server = services.find((s) => s.id === ss.serviceId);
       if (!server) return null;
-      return { server, status: ss.status };
+      // For a specific season, read the per-season status; otherwise the overall.
+      const status =
+        seasonNumber !== undefined
+          ? ss.seasonStatuses?.[seasonNumber]
+          : ss.status;
+      if (
+        status === undefined ||
+        status === MediaStatus.UNKNOWN ||
+        status === MediaStatus.DELETED
+      ) {
+        return null;
+      }
+      return { server, status };
     })
     .filter(
       (x): x is { server: ServiceCommonServer; status: MediaStatus } =>
