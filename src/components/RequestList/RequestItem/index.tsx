@@ -711,7 +711,9 @@ const RequestItem = ({ request, revalidateList }: RequestItemProps) => {
                     <TrashIcon />
                     <span>
                       {intl.formatMessage(messages.removearr, {
-                        arr: request.type === 'movie' ? 'Radarr' : 'Sonarr',
+                        arr:
+                          request.serverName ??
+                          (request.type === 'movie' ? 'Radarr' : 'Sonarr'),
                       })}
                     </span>
                   </ConfirmButton>

@@ -213,25 +213,38 @@ requestRoutes.get<Record<string, unknown>, RequestResultsResponse>(
         })
       );
 
-      // add profile names to the media requests, with undefined if not found
+      // add profile names and server names to the media requests
       let mappedRequests = requests.map((r) => {
         switch (r.type) {
           case MediaType.MOVIE: {
-            const profileName = radarrServers
-              .find((serverr) => serverr.id === r.serverId)
-              ?.profiles?.find((profile) => profile.id === r.profileId)?.name;
+            const radarrServer = radarrServers.find(
+              (serverr) => serverr.id === r.serverId
+            );
+            const profileName = radarrServer?.profiles?.find(
+              (profile) => profile.id === r.profileId
+            )?.name;
+            const serverName =
+              r.serverId != null
+                ? settings.radarr.find((s) => s.id === r.serverId)?.name
+                : undefined;
+
+            return { ...r, profileName, serverName };
+          }
+          case MediaType.TV: {
+            const sonarrServer = sonarrServers.find(
+              (serverr) => serverr.id === r.serverId
+            );
+            const serverName =
+              r.serverId != null
+                ? settings.sonarr.find((s) => s.id === r.serverId)?.name
+                : undefined;
 
             return {
               ...r,
-              profileName,
-            };
-          }
-          case MediaType.TV: {
-            return {
-              ...r,
-              profileName: sonarrServers
-                .find((serverr) => serverr.id === r.serverId)
-                ?.profiles?.find((profile) => profile.id === r.profileId)?.name,
+              profileName: sonarrServer?.profiles?.find(
+                (profile) => profile.id === r.profileId
+              )?.name,
+              serverName,
             };
           }
         }
