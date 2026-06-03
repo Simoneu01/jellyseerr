@@ -1,20 +1,29 @@
 import type { MigrationInterface, QueryRunner } from 'typeorm';
 
-export class AddRequestProfileId1778284800000 implements MigrationInterface {
+export class AddMediaServiceStatus1778284800000 implements MigrationInterface {
   public async up(queryRunner: QueryRunner): Promise<void> {
+    await queryRunner.query(`
+      CREATE TABLE IF NOT EXISTS "media_service_status" (
+        "id" integer PRIMARY KEY AUTOINCREMENT NOT NULL,
+        "mediaId" integer NOT NULL,
+        "serviceId" integer NOT NULL,
+        "serviceType" varchar NOT NULL,
+        "status" integer NOT NULL DEFAULT (0),
+        "externalServiceId" integer NULL,
+        "externalServiceSlug" varchar NULL,
+        CONSTRAINT "UQ_media_service" UNIQUE ("mediaId", "serviceId"),
+        FOREIGN KEY ("mediaId") REFERENCES "media" ("id") ON DELETE CASCADE
+      )
+    `);
     await queryRunner.query(
-      `ALTER TABLE "media_request" ADD COLUMN "requestProfileId" integer NULL`
+      `CREATE INDEX "IDX_media_service_status_mediaId" ON "media_service_status" ("mediaId")`
+    );
+    await queryRunner.query(
+      `CREATE INDEX "IDX_media_service_status_serviceId" ON "media_service_status" ("serviceId")`
     );
   }
 
   public async down(queryRunner: QueryRunner): Promise<void> {
-    // SQLite does not support DROP COLUMN directly; create a new table without the column
-    await queryRunner.query(
-      `CREATE TABLE "media_request_backup" AS SELECT id, status, mediaId, requestedById, modifiedById, createdAt, updatedAt, type, is4k, serverId, profileId, rootFolder, languageProfileId, tags, isAutoRequest FROM "media_request"`
-    );
-    await queryRunner.query(`DROP TABLE "media_request"`);
-    await queryRunner.query(
-      `ALTER TABLE "media_request_backup" RENAME TO "media_request"`
-    );
+    await queryRunner.query(`DROP TABLE IF EXISTS "media_service_status"`);
   }
 }

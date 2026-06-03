@@ -23,6 +23,7 @@ serviceRoutes.get('/radarr', async (req, res) => {
       activeDirectory: radarr.activeDirectory,
       activeProfileId: radarr.activeProfileId,
       activeTags: radarr.tags ?? [],
+      buttonLabel: radarr.buttonLabel,
     })
   );
 
@@ -95,6 +96,7 @@ serviceRoutes.get('/sonarr', async (req, res) => {
       activeLanguageProfileId: sonarr.activeLanguageProfileId,
       activeAnimeLanguageProfileId: sonarr.activeAnimeLanguageProfileId,
       activeTags: [],
+      buttonLabel: sonarr.buttonLabel,
     })
   );
 

@@ -13,12 +13,11 @@ import {
 import { MediaRequestStatus, MediaStatus } from '@server/constants/media';
 import type Media from '@server/entity/Media';
 import type { MediaRequest } from '@server/entity/MediaRequest';
-import type { RequestProfile } from '@server/lib/settings';
+import type { ServiceCommonServer } from '@server/interfaces/api/serviceInterfaces';
 import axios from 'axios';
 import { useMemo, useState } from 'react';
 import { useIntl } from 'react-intl';
-import { mutate } from 'swr';
-import useSWR from 'swr';
+import useSWR, { mutate } from 'swr';
 
 const messages = defineMessages('components.RequestButton', {
   viewrequest: 'View Request',
@@ -69,14 +68,14 @@ const RequestButton = ({
   const [showRequestModal, setShowRequestModal] = useState(false);
   const [showRequest4kModal, setShowRequest4kModal] = useState(false);
   const [editRequest, setEditRequest] = useState(false);
-  const [activeProfileModal, setActiveProfileModal] = useState<{
-    profileId: number | null;
+  const [activeServiceModal, setActiveServiceModal] = useState<{
+    serverId: number | null;
     show: boolean;
-  }>({ profileId: null, show: false });
+  }>({ serverId: null, show: false });
 
-  const { data: requestProfiles } = useSWR<RequestProfile[]>(
-    '/api/v1/settings/request-profiles'
-  );
+  const serviceEndpoint =
+    mediaType === 'movie' ? '/api/v1/service/radarr' : '/api/v1/service/sonarr';
+  const { data: allServices } = useSWR<ServiceCommonServer[]>(serviceEndpoint);
 
   // All pending requests
   const activeRequests = media?.requests.filter(
@@ -370,41 +369,50 @@ const RequestButton = ({
     });
   }
 
-  // Custom profile request buttons
-  const profilesForMediaType = (requestProfiles ?? []).filter(
-    (p) => p.mediaType === mediaType || p.mediaType === 'both'
-  );
+  // Per-service request buttons: show a button for every configured service that has a buttonLabel set
+  const labelledServices = (allServices ?? []).filter((s) => s.buttonLabel);
 
-  for (const profile of profilesForMediaType) {
-    const activeProfileRequests = media?.requests.filter(
+  for (const service of labelledServices) {
+    const activeServiceRequests = media?.requests.filter(
       (r) =>
-        (r as MediaRequest & { requestProfileId: number | null })
-          .requestProfileId === profile.id &&
-        r.status === MediaRequestStatus.PENDING
+        r.serverId === service.id && r.status === MediaRequestStatus.PENDING
     );
-    const userProfileRequest = activeProfileRequests?.find(
+    const userServiceRequest = activeServiceRequests?.find(
       (r) => r.requestedBy.id === user?.id
     );
 
-    if (userProfileRequest || (activeProfileRequests && activeProfileRequests.length > 0 && hasPermission(Permission.MANAGE_REQUESTS))) {
+    if (
+      userServiceRequest ||
+      (activeServiceRequests &&
+        activeServiceRequests.length > 0 &&
+        hasPermission(Permission.MANAGE_REQUESTS))
+    ) {
       buttons.push({
-        id: `view-profile-${profile.id}`,
-        text: `${profile.icon ? profile.icon + ' ' : ''}${profile.name}`,
+        id: `view-service-${service.id}`,
+        text: service.buttonLabel!,
         action: () => {
           setEditRequest(true);
-          setActiveProfileModal({ profileId: profile.id, show: true });
+          setActiveServiceModal({ serverId: service.id, show: true });
         },
         svg: <InformationCircleIcon />,
       });
     } else if (
-      hasPermission([Permission.REQUEST, mediaType === 'movie' ? Permission.REQUEST_MOVIE : Permission.REQUEST_TV], { type: 'or' })
+      hasPermission(
+        [
+          Permission.REQUEST,
+          mediaType === 'movie'
+            ? Permission.REQUEST_MOVIE
+            : Permission.REQUEST_TV,
+        ],
+        { type: 'or' }
+      )
     ) {
       buttons.push({
-        id: `request-profile-${profile.id}`,
-        text: `${profile.icon ? profile.icon + ' ' : ''}${profile.name}`,
+        id: `request-service-${service.id}`,
+        text: service.buttonLabel!,
         action: () => {
           setEditRequest(false);
-          setActiveProfileModal({ profileId: profile.id, show: true });
+          setActiveServiceModal({ serverId: service.id, show: true });
         },
         svg: <ArrowDownTrayIcon />,
       });
@@ -442,18 +450,18 @@ const RequestButton = ({
         }}
         onCancel={() => setShowRequest4kModal(false)}
       />
-      {activeProfileModal.show && activeProfileModal.profileId !== null && (
+      {activeServiceModal.show && activeServiceModal.serverId !== null && (
         <RequestModal
           tmdbId={tmdbId}
-          show={activeProfileModal.show}
+          show={activeServiceModal.show}
           type={mediaType}
-          requestProfileId={activeProfileModal.profileId}
+          serverId={activeServiceModal.serverId}
           onComplete={() => {
             onUpdate();
-            setActiveProfileModal({ profileId: null, show: false });
+            setActiveServiceModal({ serverId: null, show: false });
           }}
           onCancel={() =>
-            setActiveProfileModal({ profileId: null, show: false })
+            setActiveServiceModal({ serverId: null, show: false })
           }
         />
       )}

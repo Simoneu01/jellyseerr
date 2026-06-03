@@ -17,6 +17,7 @@ import {
   Column,
   Entity,
   Index,
+  JoinColumn,
   OneToMany,
   OneToOne,
   PrimaryGeneratedColumn,
@@ -24,6 +25,7 @@ import {
 } from 'typeorm';
 import Issue from './Issue';
 import { MediaRequest } from './MediaRequest';
+import MediaServiceStatus from './MediaServiceStatus';
 import Season from './Season';
 
 @Entity()
@@ -123,6 +125,13 @@ class Media {
 
   @OneToMany(() => Issue, (issue) => issue.media, { cascade: true })
   public issues: Issue[];
+
+  @OneToMany(() => MediaServiceStatus, (serviceStatus) => serviceStatus.media, {
+    cascade: true,
+    eager: true,
+  })
+  @JoinColumn()
+  public serviceStatuses: MediaServiceStatus[];
 
   @OneToOne(() => Blocklist, (blocklist) => blocklist.media)
   public blocklist: Promise<Blocklist>;

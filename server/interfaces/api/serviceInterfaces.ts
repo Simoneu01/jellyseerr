@@ -14,6 +14,7 @@ export interface ServiceCommonServer {
   activeAnimeLanguageProfileId?: number;
   activeTags: number[];
   activeAnimeTags?: number[];
+  buttonLabel?: string;
 }
 
 export interface ServiceCommonServerWithDetails {

@@ -24,6 +24,7 @@ import {
   MediaType,
 } from '@server/constants/media';
 import { MediaServerType } from '@server/constants/server';
+import type MediaServiceStatus from '@server/entity/MediaServiceStatus';
 import type { MediaWatchDataResponse } from '@server/interfaces/api/mediaInterfaces';
 import type { DownloadingItem } from '@server/lib/downloadtracker';
 import type { RadarrSettings, SonarrSettings } from '@server/lib/settings';
@@ -61,6 +62,7 @@ const messages = defineMessages('components.ManageSlideOver', {
   manageModalRemoveMediaWarning:
     '* This will irreversibly remove this {mediaType} from {arr}, including all files.',
   openarr: 'Open in {arr}',
+  openarrinservice: 'Open in {name}',
   removearr: 'Remove from {arr}',
   openarr4k: 'Open in 4K {arr}',
   removearr4k: 'Remove from 4K {arr}',
@@ -201,6 +203,42 @@ const ManageSlideOver = ({
     }
   };
 
+  const buildServiceUrl = (
+    server: RadarrSettings | SonarrSettings,
+    slug: string | null | undefined,
+    type: 'movie' | 'series'
+  ): string | null => {
+    if (!slug) return null;
+    const protocol = server.useSsl ? 'https' : 'http';
+    const base = server.externalUrl?.trim()
+      ? server.externalUrl.trim().replace(/\/$/, '')
+      : `${protocol}://${server.hostname}:${server.port}${server.baseUrl?.trim() ?? ''}`;
+    return `${base}/${type}/${slug}`;
+  };
+
+  // Compute per-service links from MediaServiceStatus entries
+  const serviceLinks: { name: string; url: string }[] = (
+    (data.mediaInfo?.serviceStatuses ?? []) as MediaServiceStatus[]
+  )
+    .map((ss) => {
+      const slug = ss.externalServiceSlug;
+      if (!slug) return null;
+      if (ss.serviceType === 'radarr') {
+        const server = radarrData?.find((r) => r.id === ss.serviceId);
+        if (!server) return null;
+        const url = buildServiceUrl(server, slug, 'movie');
+        if (!url) return null;
+        return { name: server.name, url };
+      } else {
+        const server = sonarrData?.find((s) => s.id === ss.serviceId);
+        if (!server) return null;
+        const url = buildServiceUrl(server, slug, 'series');
+        if (!url) return null;
+        return { name: server.name, url };
+      }
+    })
+    .filter((x): x is { name: string; url: string } => x !== null);
+
   const requests =
     data.mediaInfo?.requests?.filter(
       (request) => request.status !== MediaRequestStatus.DECLINED
@@ -332,7 +370,8 @@ const ManageSlideOver = ({
           </div>
         )}
         {hasPermission(Permission.ADMIN) &&
-          (data.mediaInfo?.serviceUrl ||
+          (serviceLinks.length > 0 ||
+            data.mediaInfo?.serviceUrl ||
             data.mediaInfo?.tautulliUrl ||
             watchData?.data) && (
             <div>
@@ -437,23 +476,42 @@ const ManageSlideOver = ({
                     )}
                   </div>
                 )}
-                {data.mediaInfo?.serviceUrl && (
-                  <a
-                    href={data?.mediaInfo?.serviceUrl}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="block"
-                  >
-                    <Button buttonType="ghost" className="w-full">
-                      <ServerIcon />
-                      <span>
-                        {intl.formatMessage(messages.openarr, {
-                          arr: mediaType === 'movie' ? 'Radarr' : 'Sonarr',
-                        })}
-                      </span>
-                    </Button>
-                  </a>
-                )}
+                {serviceLinks.length > 0
+                  ? serviceLinks.map((link) => (
+                      <a
+                        key={`service-link-${link.name}`}
+                        href={link.url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="block"
+                      >
+                        <Button buttonType="ghost" className="w-full">
+                          <ServerIcon />
+                          <span>
+                            {intl.formatMessage(messages.openarrinservice, {
+                              name: link.name,
+                            })}
+                          </span>
+                        </Button>
+                      </a>
+                    ))
+                  : data.mediaInfo?.serviceUrl && (
+                      <a
+                        href={data.mediaInfo.serviceUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="block"
+                      >
+                        <Button buttonType="ghost" className="w-full">
+                          <ServerIcon />
+                          <span>
+                            {intl.formatMessage(messages.openarr, {
+                              arr: mediaType === 'movie' ? 'Radarr' : 'Sonarr',
+                            })}
+                          </span>
+                        </Button>
+                      </a>
+                    )}
 
                 {hasPermission(Permission.ADMIN) &&
                   data?.mediaInfo?.serviceUrl &&

@@ -69,6 +69,9 @@ const messages = defineMessages('components.Settings.SonarrModal', {
   syncEnabled: 'Enable Scan',
   externalUrl: 'External URL',
   enableSearch: 'Enable Automatic Search',
+  buttonLabel: 'Request Button Label',
+  buttonLabelHelp:
+    'Short label shown on the request button for this server (e.g. "ITA", "ENG"). Leave blank to hide the button.',
   tagRequests: 'Tag Requests',
   tagRequestsInfo:
     "Automatically add an additional tag with the requester's user ID & display name",
@@ -261,6 +264,7 @@ const SonarrModal = ({ onClose, sonarr, onSave }: SonarrModalProps) => {
           syncEnabled: sonarr?.syncEnabled ?? false,
           enableSearch: !sonarr?.preventSearch,
           tagRequests: sonarr?.tagRequests ?? false,
+          buttonLabel: sonarr?.buttonLabel ?? '',
           monitorNewItems: sonarr?.monitorNewItems ?? 'all',
         }}
         validationSchema={SonarrSettingsSchema}
@@ -305,6 +309,7 @@ const SonarrModal = ({ onClose, sonarr, onSave }: SonarrModalProps) => {
               syncEnabled: values.syncEnabled,
               preventSearch: !values.enableSearch,
               tagRequests: values.tagRequests,
+              buttonLabel: values.buttonLabel || undefined,
               monitorNewItems: values.monitorNewItems,
             };
             if (!sonarr) {
@@ -1101,6 +1106,24 @@ const SonarrModal = ({ onClose, sonarr, onSave }: SonarrModalProps) => {
                       id="tagRequests"
                       name="tagRequests"
                     />
+                  </div>
+                </div>
+                <div className="form-row">
+                  <label htmlFor="buttonLabel" className="text-label">
+                    {intl.formatMessage(messages.buttonLabel)}
+                    <span className="label-tip">
+                      {intl.formatMessage(messages.buttonLabelHelp)}
+                    </span>
+                  </label>
+                  <div className="form-input-area">
+                    <div className="form-input-field">
+                      <Field
+                        type="text"
+                        id="buttonLabel"
+                        name="buttonLabel"
+                        placeholder="ITA"
+                      />
+                    </div>
                   </div>
                 </div>
               </div>

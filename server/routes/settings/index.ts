@@ -42,7 +42,6 @@ import { URL } from 'url';
 import metadataRoutes from './metadata';
 import notificationRoutes from './notifications';
 import radarrRoutes from './radarr';
-import requestProfileRoutes from './requestProfiles';
 import sonarrRoutes from './sonarr';
 
 const settingsRoutes = Router();
@@ -50,7 +49,6 @@ const settingsRoutes = Router();
 settingsRoutes.use('/notifications', notificationRoutes);
 settingsRoutes.use('/radarr', radarrRoutes);
 settingsRoutes.use('/sonarr', sonarrRoutes);
-settingsRoutes.use('/request-profiles', requestProfileRoutes);
 settingsRoutes.use('/discover', discoverSettingRoutes);
 settingsRoutes.use('/metadatas', metadataRoutes);
 

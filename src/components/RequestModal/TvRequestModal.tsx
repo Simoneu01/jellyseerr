@@ -58,7 +58,7 @@ interface RequestModalProps extends React.HTMLAttributes<HTMLDivElement> {
   onComplete?: (newStatus: MediaStatus) => void;
   onUpdating?: (isUpdating: boolean) => void;
   is4k?: boolean;
-  requestProfileId?: number | null;
+  serverId?: number;
   editRequest?: NonFunctionProperties<MediaRequest>;
 }
 
@@ -69,7 +69,7 @@ const TvRequestModal = ({
   onUpdating,
   editRequest,
   is4k = false,
-  requestProfileId,
+  serverId,
 }: RequestModalProps) => {
   const settings = useSettings();
   const { addToast } = useToasts();
@@ -201,7 +201,7 @@ const TvRequestModal = ({
         tvdbId: tvdbId ?? data?.externalIds.tvdbId,
         mediaType: 'tv',
         is4k,
-        ...(requestProfileId != null ? { requestProfileId } : {}),
+        ...(serverId != null ? { serverId } : {}),
         seasons: settings.currentSettings.partialRequestsEnabled
           ? selectedSeasons.sort((a, b) => a - b)
           : getAllSeasons().filter(
