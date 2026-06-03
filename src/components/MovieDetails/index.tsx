@@ -509,6 +509,8 @@ const MovieDetails = ({ movie }: MovieDetailsProps) => {
               <ServiceStatusBadges
                 serviceStatuses={data.mediaInfo.serviceStatuses}
                 mediaType="movie"
+                plexUrl={plexUrl}
+                tmdbId={data.mediaInfo.tmdbId}
               />
             ) : (
               <>

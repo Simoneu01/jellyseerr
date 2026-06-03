@@ -551,6 +551,8 @@ const TvDetails = ({ tv }: TvDetailsProps) => {
               <ServiceStatusBadges
                 serviceStatuses={data.mediaInfo.serviceStatuses}
                 mediaType="tv"
+                plexUrl={plexUrl}
+                tmdbId={data.mediaInfo.tmdbId}
               />
             ) : (
               <>

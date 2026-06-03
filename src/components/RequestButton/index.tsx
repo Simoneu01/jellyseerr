@@ -36,6 +36,7 @@ const messages = defineMessages('components.RequestButton', {
     'Approve {requestCount, plural, one {4K Request} other {{requestCount} 4K Requests}}',
   decline4krequests:
     'Decline {requestCount, plural, one {4K Request} other {{requestCount} 4K Requests}}',
+  requestinservice: 'Request in {label}',
 });
 
 interface ButtonOption {
@@ -397,7 +398,9 @@ const RequestButton = ({
     ) {
       buttons.push({
         id: `view-service-${service.id}`,
-        text: service.buttonLabel!,
+        text: intl.formatMessage(messages.requestinservice, {
+          label: service.buttonLabel,
+        }),
         action: () => {
           setEditRequest(true);
           setActiveServiceModal({ serverId: service.id, show: true });
@@ -417,7 +420,9 @@ const RequestButton = ({
     ) {
       buttons.push({
         id: `request-service-${service.id}`,
-        text: service.buttonLabel!,
+        text: intl.formatMessage(messages.requestinservice, {
+          label: service.buttonLabel,
+        }),
         action: () => {
           setEditRequest(false);
           setActiveServiceModal({ serverId: service.id, show: true });

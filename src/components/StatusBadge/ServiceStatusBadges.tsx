@@ -13,11 +13,15 @@ const STATUS_LABEL: Partial<Record<MediaStatus, string>> = {
 interface ServiceStatusBadgesProps {
   serviceStatuses?: MediaServiceStatus[];
   mediaType: 'movie' | 'tv';
+  plexUrl?: string;
+  tmdbId?: number;
 }
 
 const ServiceStatusBadges = ({
   serviceStatuses,
   mediaType,
+  plexUrl,
+  tmdbId,
 }: ServiceStatusBadgesProps) => {
   const { data: services } = useSWR<ServiceCommonServer[]>(
     serviceStatuses?.length
@@ -50,8 +54,10 @@ const ServiceStatusBadges = ({
         <StatusBadge
           key={`service-badge-${server.id}`}
           status={status}
-          statusLabelOverride={`${STATUS_LABEL[status] ?? 'In'} in ${server.name}`}
+          statusLabelOverride={`${STATUS_LABEL[status] ?? 'In'} in ${server.buttonLabel ?? server.name}`}
           mediaType={mediaType}
+          plexUrl={plexUrl}
+          tmdbId={tmdbId}
         />
       ))}
     </>
