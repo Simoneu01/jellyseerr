@@ -180,14 +180,15 @@ const StatusBadge = ({
               }`}
             >
               <span>
-                {intl.formatMessage(
-                  is4k ? messages.status4k : messages.status,
-                  {
-                    status: inProgress
-                      ? intl.formatMessage(globalMessages.processing)
-                      : intl.formatMessage(globalMessages.available),
-                  }
-                )}
+                {statusLabelOverride ??
+                  intl.formatMessage(
+                    is4k ? messages.status4k : messages.status,
+                    {
+                      status: inProgress
+                        ? intl.formatMessage(globalMessages.processing)
+                        : intl.formatMessage(globalMessages.available),
+                    }
+                  )}
               </span>
               {inProgress && (
                 <>
@@ -245,14 +246,15 @@ const StatusBadge = ({
               }`}
             >
               <span>
-                {intl.formatMessage(
-                  is4k ? messages.status4k : messages.status,
-                  {
-                    status: inProgress
-                      ? intl.formatMessage(globalMessages.processing)
-                      : intl.formatMessage(globalMessages.partiallyavailable),
-                  }
-                )}
+                {statusLabelOverride ??
+                  intl.formatMessage(
+                    is4k ? messages.status4k : messages.status,
+                    {
+                      status: inProgress
+                        ? intl.formatMessage(globalMessages.processing)
+                        : intl.formatMessage(globalMessages.partiallyavailable),
+                    }
+                  )}
               </span>
               {inProgress && (
                 <>
@@ -310,14 +312,15 @@ const StatusBadge = ({
               }`}
             >
               <span>
-                {intl.formatMessage(
-                  is4k ? messages.status4k : messages.status,
-                  {
-                    status: inProgress
-                      ? intl.formatMessage(globalMessages.processing)
-                      : intl.formatMessage(globalMessages.requested),
-                  }
-                )}
+                {statusLabelOverride ??
+                  intl.formatMessage(
+                    is4k ? messages.status4k : messages.status,
+                    {
+                      status: inProgress
+                        ? intl.formatMessage(globalMessages.processing)
+                        : intl.formatMessage(globalMessages.requested),
+                    }
+                  )}
               </span>
               {inProgress && (
                 <>

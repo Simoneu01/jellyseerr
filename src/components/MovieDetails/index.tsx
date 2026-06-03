@@ -22,6 +22,7 @@ import PersonCard from '@app/components/PersonCard';
 import RequestButton from '@app/components/RequestButton';
 import Slider from '@app/components/Slider';
 import StatusBadge from '@app/components/StatusBadge';
+import ServiceStatusBadges from '@app/components/StatusBadge/ServiceStatusBadges';
 import useDeepLinks from '@app/hooks/useDeepLinks';
 import useLocale from '@app/hooks/useLocale';
 import useSettings from '@app/hooks/useSettings';
@@ -504,41 +505,48 @@ const MovieDetails = ({ movie }: MovieDetailsProps) => {
         </div>
         <div className="media-title">
           <div className="media-status">
-            <StatusBadge
-              status={data.mediaInfo?.status}
-              downloadItem={data.mediaInfo?.downloadStatus}
-              title={data.title}
-              inProgress={(data.mediaInfo?.downloadStatus ?? []).length > 0}
-              tmdbId={data.mediaInfo?.tmdbId}
-              mediaType="movie"
-              plexUrl={plexUrl}
-              serviceUrl={data.mediaInfo?.serviceUrl}
-            />
-            {settings.currentSettings.movie4kEnabled &&
-              hasPermission(
-                [
-                  Permission.MANAGE_REQUESTS,
-                  Permission.REQUEST_4K,
-                  Permission.REQUEST_4K_MOVIE,
-                ],
-                {
-                  type: 'or',
-                }
-              ) && (
+            {data.mediaInfo?.serviceStatuses?.length ? (
+              <ServiceStatusBadges
+                serviceStatuses={data.mediaInfo.serviceStatuses}
+                mediaType="movie"
+              />
+            ) : (
+              <>
                 <StatusBadge
-                  status={data.mediaInfo?.status4k}
-                  downloadItem={data.mediaInfo?.downloadStatus4k}
+                  status={data.mediaInfo?.status}
+                  downloadItem={data.mediaInfo?.downloadStatus}
                   title={data.title}
-                  is4k
-                  inProgress={
-                    (data.mediaInfo?.downloadStatus4k ?? []).length > 0
-                  }
+                  inProgress={(data.mediaInfo?.downloadStatus ?? []).length > 0}
                   tmdbId={data.mediaInfo?.tmdbId}
                   mediaType="movie"
-                  plexUrl={plexUrl4k}
-                  serviceUrl={data.mediaInfo?.serviceUrl4k}
+                  plexUrl={plexUrl}
+                  serviceUrl={data.mediaInfo?.serviceUrl}
                 />
-              )}
+                {settings.currentSettings.movie4kEnabled &&
+                  hasPermission(
+                    [
+                      Permission.MANAGE_REQUESTS,
+                      Permission.REQUEST_4K,
+                      Permission.REQUEST_4K_MOVIE,
+                    ],
+                    { type: 'or' }
+                  ) && (
+                    <StatusBadge
+                      status={data.mediaInfo?.status4k}
+                      downloadItem={data.mediaInfo?.downloadStatus4k}
+                      title={data.title}
+                      is4k
+                      inProgress={
+                        (data.mediaInfo?.downloadStatus4k ?? []).length > 0
+                      }
+                      tmdbId={data.mediaInfo?.tmdbId}
+                      mediaType="movie"
+                      plexUrl={plexUrl4k}
+                      serviceUrl={data.mediaInfo?.serviceUrl4k}
+                    />
+                  )}
+              </>
+            )}
           </div>
           <h1 data-testid="media-title">
             {data.title}{' '}
