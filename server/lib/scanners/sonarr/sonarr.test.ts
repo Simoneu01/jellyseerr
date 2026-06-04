@@ -8,6 +8,7 @@ import type {
 import { MediaStatus, MediaType } from '@server/constants/media';
 import { getRepository } from '@server/datasource';
 import Media from '@server/entity/Media';
+import MediaServiceStatus from '@server/entity/MediaServiceStatus';
 import Season from '@server/entity/Season';
 import type { SonarrSettings } from '@server/lib/settings';
 import { getSettings } from '@server/lib/settings';
@@ -517,6 +518,58 @@ describe('Sonarr Scanner', () => {
       const s2 = updated.seasons.find((s) => s.seasonNumber === 2);
       assert.strictEqual(s1?.status4k, MediaStatus.AVAILABLE);
       assert.strictEqual(s2?.status4k, MediaStatus.UNKNOWN);
+    });
+  });
+
+  describe('per-service status tracking', () => {
+    async function seedShow(): Promise<Media> {
+      const mediaRepository = getRepository(Media);
+      const media = new Media();
+      media.tmdbId = 1;
+      media.tvdbId = 200;
+      media.mediaType = MediaType.TV;
+      media.status = MediaStatus.PROCESSING;
+      media.seasons = [
+        new Season({
+          seasonNumber: 1,
+          status: MediaStatus.PROCESSING,
+          status4k: MediaStatus.UNKNOWN,
+        }),
+      ];
+      return mediaRepository.save(media);
+    }
+
+    function configureAvailableSeries(): void {
+      configureSonarr([{ syncEnabled: true }]);
+      getSeriesImpl = async () => [fakeSonarrSeries({ tvdbId: 200 })];
+      getShowByTvdbIdImpl = async () => fakeTmdbShow(1);
+      getTvShowImpl = async () => fakeTmdbShow(1);
+    }
+
+    it('records per-service availability for a scanned show', async () => {
+      const media = await seedShow();
+      configureAvailableSeries();
+
+      await sonarrScanner.run();
+
+      const serviceStatus = await getRepository(MediaServiceStatus).findOne({
+        where: { mediaId: media.id, serviceId: 0 },
+      });
+      assert.ok(
+        serviceStatus,
+        'expected a MediaServiceStatus row to be created'
+      );
+      assert.strictEqual(serviceStatus.serviceType, 'sonarr');
+      assert.strictEqual(serviceStatus.status, MediaStatus.AVAILABLE);
+
+      // A re-scan must UPDATE the existing row via the (mediaId, serviceId)
+      // conflict rather than fail. (Deterministic reproduction of the
+      // last_insert_rowid edge case lives in mediaServiceStatus.test.ts.)
+      await sonarrScanner.run();
+      const reScanned = await getRepository(MediaServiceStatus).findOne({
+        where: { mediaId: media.id, serviceId: 0 },
+      });
+      assert.strictEqual(reScanned?.status, MediaStatus.AVAILABLE);
     });
   });
 });

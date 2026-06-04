@@ -18,6 +18,7 @@ import { MediaRequest } from '@server/entity/MediaRequest';
 import MediaServiceStatus from '@server/entity/MediaServiceStatus';
 import Season from '@server/entity/Season';
 import SeasonRequest from '@server/entity/SeasonRequest';
+import { upsertMediaServiceStatus } from '@server/lib/mediaServiceStatus';
 import notificationManager, { Notification } from '@server/lib/notifications';
 import { getSettings } from '@server/lib/settings';
 import logger from '@server/logger';
@@ -415,19 +416,18 @@ export class MediaRequestSubscriber implements EntitySubscriberInterface<MediaRe
               radarrSettings?.id;
             await mediaRepository.save(media);
 
-            // Record per-service status for this Radarr instance
+            // Record per-service status for this Radarr instance.
             if (radarrSettings?.id !== undefined) {
-              const serviceStatusRepository = getRepository(MediaServiceStatus);
-              await serviceStatusRepository.upsert(
-                new MediaServiceStatus({
+              await upsertMediaServiceStatus(
+                getRepository(MediaServiceStatus),
+                {
                   mediaId: media.id,
                   serviceId: radarrSettings.id,
                   serviceType: 'radarr',
                   status: MediaStatus.PROCESSING,
                   externalServiceId: radarrMovie.id,
                   externalServiceSlug: radarrMovie.titleSlug,
-                }),
-                ['mediaId', 'serviceId']
+                }
               );
             }
           })
@@ -783,19 +783,18 @@ export class MediaRequestSubscriber implements EntitySubscriberInterface<MediaRe
               sonarrSettings?.id;
             await mediaRepository.save(media);
 
-            // Record per-service status for this Sonarr instance
+            // Record per-service status for this Sonarr instance.
             if (sonarrSettings?.id !== undefined) {
-              const serviceStatusRepository = getRepository(MediaServiceStatus);
-              await serviceStatusRepository.upsert(
-                new MediaServiceStatus({
+              await upsertMediaServiceStatus(
+                getRepository(MediaServiceStatus),
+                {
                   mediaId: media.id,
                   serviceId: sonarrSettings.id,
                   serviceType: 'sonarr',
                   status: MediaStatus.PROCESSING,
                   externalServiceId: sonarrSeries.id ?? null,
                   externalServiceSlug: sonarrSeries.titleSlug ?? null,
-                }),
-                ['mediaId', 'serviceId']
+                }
               );
             }
           })

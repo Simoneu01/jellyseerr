@@ -4,6 +4,7 @@ import { getRepository } from '@server/datasource';
 import Media from '@server/entity/Media';
 import MediaServiceStatus from '@server/entity/MediaServiceStatus';
 import Season from '@server/entity/Season';
+import { upsertMediaServiceStatus } from '@server/lib/mediaServiceStatus';
 import { getSettings } from '@server/lib/settings';
 import logger from '@server/logger';
 import AsyncLock from '@server/utils/asyncLock';
@@ -881,10 +882,10 @@ class BaseScanner<T> {
     seasonStatuses: Record<number, MediaStatus> | null = null
   ): Promise<void> {
     const repo = getRepository(MediaServiceStatus);
-    // Single INSERT ... ON CONFLICT on the (mediaId, serviceId) unique index,
-    // avoiding a separate read before write.
-    await repo.upsert(
-      new MediaServiceStatus({
+    // Scans own the per-season data, so they overwrite seasonStatuses too.
+    await upsertMediaServiceStatus(
+      repo,
+      {
         mediaId,
         serviceId,
         serviceType,
@@ -892,8 +893,8 @@ class BaseScanner<T> {
         externalServiceId: externalServiceId ?? null,
         externalServiceSlug: externalServiceSlug ?? null,
         seasonStatuses,
-      }),
-      ['mediaId', 'serviceId']
+      },
+      ['status', 'externalServiceId', 'externalServiceSlug', 'seasonStatuses']
     );
   }
 
