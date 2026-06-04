@@ -418,26 +418,17 @@ export class MediaRequestSubscriber implements EntitySubscriberInterface<MediaRe
             // Record per-service status for this Radarr instance
             if (radarrSettings?.id !== undefined) {
               const serviceStatusRepository = getRepository(MediaServiceStatus);
-              const existing = await serviceStatusRepository.findOne({
-                where: { mediaId: media.id, serviceId: radarrSettings.id },
-              });
-              if (existing) {
-                existing.status = MediaStatus.PROCESSING;
-                existing.externalServiceId = radarrMovie.id;
-                existing.externalServiceSlug = radarrMovie.titleSlug;
-                await serviceStatusRepository.save(existing);
-              } else {
-                await serviceStatusRepository.save(
-                  new MediaServiceStatus({
-                    mediaId: media.id,
-                    serviceId: radarrSettings.id,
-                    serviceType: 'radarr',
-                    status: MediaStatus.PROCESSING,
-                    externalServiceId: radarrMovie.id,
-                    externalServiceSlug: radarrMovie.titleSlug,
-                  })
-                );
-              }
+              await serviceStatusRepository.upsert(
+                new MediaServiceStatus({
+                  mediaId: media.id,
+                  serviceId: radarrSettings.id,
+                  serviceType: 'radarr',
+                  status: MediaStatus.PROCESSING,
+                  externalServiceId: radarrMovie.id,
+                  externalServiceSlug: radarrMovie.titleSlug,
+                }),
+                ['mediaId', 'serviceId']
+              );
             }
           })
           .catch(async () => {
@@ -795,26 +786,17 @@ export class MediaRequestSubscriber implements EntitySubscriberInterface<MediaRe
             // Record per-service status for this Sonarr instance
             if (sonarrSettings?.id !== undefined) {
               const serviceStatusRepository = getRepository(MediaServiceStatus);
-              const existing = await serviceStatusRepository.findOne({
-                where: { mediaId: media.id, serviceId: sonarrSettings.id },
-              });
-              if (existing) {
-                existing.status = MediaStatus.PROCESSING;
-                existing.externalServiceId = sonarrSeries.id ?? null;
-                existing.externalServiceSlug = sonarrSeries.titleSlug ?? null;
-                await serviceStatusRepository.save(existing);
-              } else {
-                await serviceStatusRepository.save(
-                  new MediaServiceStatus({
-                    mediaId: media.id,
-                    serviceId: sonarrSettings.id,
-                    serviceType: 'sonarr',
-                    status: MediaStatus.PROCESSING,
-                    externalServiceId: sonarrSeries.id ?? null,
-                    externalServiceSlug: sonarrSeries.titleSlug ?? null,
-                  })
-                );
-              }
+              await serviceStatusRepository.upsert(
+                new MediaServiceStatus({
+                  mediaId: media.id,
+                  serviceId: sonarrSettings.id,
+                  serviceType: 'sonarr',
+                  status: MediaStatus.PROCESSING,
+                  externalServiceId: sonarrSeries.id ?? null,
+                  externalServiceSlug: sonarrSeries.titleSlug ?? null,
+                }),
+                ['mediaId', 'serviceId']
+              );
             }
           })
           .catch(async () => {

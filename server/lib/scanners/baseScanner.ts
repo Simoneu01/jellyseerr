@@ -881,26 +881,20 @@ class BaseScanner<T> {
     seasonStatuses: Record<number, MediaStatus> | null = null
   ): Promise<void> {
     const repo = getRepository(MediaServiceStatus);
-    const existing = await repo.findOne({ where: { mediaId, serviceId } });
-    if (existing) {
-      existing.status = status;
-      existing.externalServiceId = externalServiceId ?? null;
-      existing.externalServiceSlug = externalServiceSlug ?? null;
-      existing.seasonStatuses = seasonStatuses;
-      await repo.save(existing);
-    } else {
-      await repo.save(
-        new MediaServiceStatus({
-          mediaId,
-          serviceId,
-          serviceType,
-          status,
-          externalServiceId: externalServiceId ?? null,
-          externalServiceSlug: externalServiceSlug ?? null,
-          seasonStatuses,
-        })
-      );
-    }
+    // Single INSERT ... ON CONFLICT on the (mediaId, serviceId) unique index,
+    // avoiding a separate read before write.
+    await repo.upsert(
+      new MediaServiceStatus({
+        mediaId,
+        serviceId,
+        serviceType,
+        status,
+        externalServiceId: externalServiceId ?? null,
+        externalServiceSlug: externalServiceSlug ?? null,
+        seasonStatuses,
+      }),
+      ['mediaId', 'serviceId']
+    );
   }
 
   get protectedUpdateRate(): number {
