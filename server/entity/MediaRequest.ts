@@ -158,11 +158,19 @@ export class MediaRequest {
         throw new BlocklistedMediaError('This media is blocklisted.');
       }
 
-      if (media.status === MediaStatus.UNKNOWN && !requestBody.is4k) {
+      if (
+        (media.status === MediaStatus.UNKNOWN ||
+          media.status === MediaStatus.DELETED) &&
+        !requestBody.is4k
+      ) {
         media.status = MediaStatus.PENDING;
       }
 
-      if (media.status4k === MediaStatus.UNKNOWN && requestBody.is4k) {
+      if (
+        (media.status === MediaStatus.UNKNOWN ||
+          media.status === MediaStatus.DELETED) &&
+        requestBody.is4k
+      ) {
         media.status4k = MediaStatus.PENDING;
       }
     }
