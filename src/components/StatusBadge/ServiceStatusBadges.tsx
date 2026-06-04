@@ -1,5 +1,4 @@
-import StatusBadge from '@app/components/StatusBadge';
-import globalMessages from '@app/i18n/globalMessages';
+import StatusBadge, { getStatusLabel } from '@app/components/StatusBadge';
 import defineMessages from '@app/utils/defineMessages';
 import { MediaStatus } from '@server/constants/media';
 import type MediaServiceStatus from '@server/entity/MediaServiceStatus';
@@ -39,19 +38,6 @@ const ServiceStatusBadges = ({
 
   if (!services || !serviceStatuses?.length) return null;
 
-  const statusLabel = (status: MediaStatus): string => {
-    switch (status) {
-      case MediaStatus.AVAILABLE:
-        return intl.formatMessage(globalMessages.available);
-      case MediaStatus.PARTIALLY_AVAILABLE:
-        return intl.formatMessage(globalMessages.partiallyavailable);
-      case MediaStatus.PROCESSING:
-        return intl.formatMessage(globalMessages.processing);
-      default:
-        return '';
-    }
-  };
-
   const items = serviceStatuses
     .map((ss) => {
       const server = services.find((s) => s.id === ss.serviceId);
@@ -88,7 +74,7 @@ const ServiceStatusBadges = ({
           inProgress={downloadItem.length > 0}
           title={title}
           statusLabelOverride={intl.formatMessage(messages.statusinservice, {
-            status: statusLabel(status),
+            status: getStatusLabel(intl, status, downloadItem.length > 0),
             label: server.buttonLabel ?? server.name,
           })}
           mediaType={mediaType}
