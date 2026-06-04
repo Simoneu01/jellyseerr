@@ -979,13 +979,18 @@ const MovieDetails = ({ movie }: MovieDetailsProps) => {
                   <Link
                     href={`/discover/movies/language/${data.originalLanguage}`}
                   >
-                    {intl.formatDisplayName(data.originalLanguage, {
-                      type: 'language',
-                      fallback: 'none',
-                    }) ??
-                      data.spokenLanguages.find(
-                        (lng) => lng.iso_639_1 === data.originalLanguage
-                      )?.name}
+                    {/* Intl.DisplayNames capitalization can differ between the
+                        server (Node ICU) and the browser, so suppress the
+                        hydration warning for this locale-formatted text. */}
+                    <span suppressHydrationWarning>
+                      {intl.formatDisplayName(data.originalLanguage, {
+                        type: 'language',
+                        fallback: 'none',
+                      }) ??
+                        data.spokenLanguages.find(
+                          (lng) => lng.iso_639_1 === data.originalLanguage
+                        )?.name}
+                    </span>
                   </Link>
                 </span>
               </div>
