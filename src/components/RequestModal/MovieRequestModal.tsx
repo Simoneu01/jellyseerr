@@ -288,24 +288,24 @@ const MovieRequestModal = ({
           : intl.formatMessage(messages.requestfrom, {
               username: editRequest.requestedBy.displayName,
             })}
-        {!serverId &&
-          (hasPermission(Permission.REQUEST_ADVANCED) ||
-            hasPermission(Permission.MANAGE_REQUESTS)) && (
-            <AdvancedRequester
-              type="movie"
-              is4k={is4k}
-              requestUser={editRequest.requestedBy}
-              defaultOverrides={{
-                folder: editRequest.rootFolder,
-                profile: editRequest.profileId,
-                server: editRequest.serverId,
-                tags: editRequest.tags,
-              }}
-              onChange={(overrides) => {
-                setRequestOverrides(overrides);
-              }}
-            />
-          )}
+        {(hasPermission(Permission.REQUEST_ADVANCED) ||
+          hasPermission(Permission.MANAGE_REQUESTS)) && (
+          <AdvancedRequester
+            type="movie"
+            is4k={is4k}
+            tagsOnly={serverId != null}
+            requestUser={editRequest.requestedBy}
+            defaultOverrides={{
+              folder: editRequest.rootFolder,
+              profile: editRequest.profileId,
+              server: serverId ?? editRequest.serverId,
+              tags: editRequest.tags,
+            }}
+            onChange={(overrides) => {
+              setRequestOverrides(overrides);
+            }}
+          />
+        )}
       </Modal>
     );
   }
@@ -359,9 +359,20 @@ const MovieRequestModal = ({
           }
         />
       )}
-      {!serverId &&
-        (hasPermission(Permission.REQUEST_ADVANCED) ||
-          hasPermission(Permission.MANAGE_REQUESTS)) && (
+      {(hasPermission(Permission.REQUEST_ADVANCED) ||
+        hasPermission(Permission.MANAGE_REQUESTS)) &&
+        (serverId != null ? (
+          // Per-service request: server is fixed by the button, only tags are editable
+          <AdvancedRequester
+            type="movie"
+            is4k={is4k}
+            tagsOnly
+            defaultOverrides={{ server: serverId }}
+            onChange={(overrides) => {
+              setRequestOverrides(overrides);
+            }}
+          />
+        ) : (
           <AdvancedRequester
             type="movie"
             is4k={is4k}
@@ -369,7 +380,7 @@ const MovieRequestModal = ({
               setRequestOverrides(overrides);
             }}
           />
-        )}
+        ))}
     </Modal>
   );
 };

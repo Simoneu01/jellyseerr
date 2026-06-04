@@ -715,19 +715,24 @@ const TvRequestModal = ({
           </div>
         </div>
       </div>
-      {!serverId &&
-        (hasPermission(Permission.REQUEST_ADVANCED) ||
-          hasPermission(Permission.MANAGE_REQUESTS)) && (
-          <AdvancedRequester
-            type="tv"
-            is4k={is4k}
-            isAnime={data?.keywords.some(
-              (keyword) => keyword.id === ANIME_KEYWORD_ID
-            )}
-            onChange={(overrides) => setRequestOverrides(overrides)}
-            requestUser={editRequest?.requestedBy}
-            defaultOverrides={
-              editRequest
+      {(hasPermission(Permission.REQUEST_ADVANCED) ||
+        hasPermission(Permission.MANAGE_REQUESTS)) && (
+        <AdvancedRequester
+          type="tv"
+          is4k={is4k}
+          tagsOnly={serverId != null}
+          isAnime={data?.keywords.some(
+            (keyword) => keyword.id === ANIME_KEYWORD_ID
+          )}
+          onChange={(overrides) => setRequestOverrides(overrides)}
+          requestUser={editRequest?.requestedBy}
+          defaultOverrides={
+            serverId != null
+              ? {
+                  server: serverId,
+                  tags: editRequest?.tags,
+                }
+              : editRequest
                 ? {
                     folder: editRequest.rootFolder,
                     profile: editRequest.profileId,
@@ -736,9 +741,9 @@ const TvRequestModal = ({
                     tags: editRequest.tags,
                   }
                 : undefined
-            }
-          />
-        )}
+          }
+        />
+      )}
     </Modal>
   );
 };
