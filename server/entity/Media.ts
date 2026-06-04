@@ -72,7 +72,7 @@ class Media {
     try {
       const media = await mediaRepository.findOne({
         where: { tmdbId: id, mediaType: mediaType },
-        relations: { requests: true, issues: true },
+        relations: { requests: true, issues: true, serviceStatuses: true },
       });
 
       return media ?? undefined;
@@ -129,9 +129,12 @@ class Media {
   // the scanners/subscriber (explicit repository upserts). Cascading would cause
   // any media save (e.g. a Plex/Jellyfin library scan) to clobber the per-service
   // availability that was set by the Radarr/Sonarr scans.
-  @OneToMany(() => MediaServiceStatus, (serviceStatus) => serviceStatus.media, {
-    eager: true,
-  })
+  //
+  // Also intentionally NOT `eager` — only the single-item detail view renders
+  // per-service badges, so it's loaded explicitly via `Media.getMedia()`.
+  // Leaving it eager would join media_service_status onto every Media query,
+  // including the large Discover/search/recommendation lists that never use it.
+  @OneToMany(() => MediaServiceStatus, (serviceStatus) => serviceStatus.media)
   public serviceStatuses: MediaServiceStatus[];
 
   @OneToOne(() => Blocklist, (blocklist) => blocklist.media)
