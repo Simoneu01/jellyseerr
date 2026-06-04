@@ -24,6 +24,7 @@ serviceRoutes.get('/radarr', async (req, res) => {
       activeProfileId: radarr.activeProfileId,
       activeTags: radarr.tags ?? [],
       buttonLabel: radarr.buttonLabel,
+      animeOnly: radarr.animeOnly,
     })
   );
 
@@ -97,6 +98,7 @@ serviceRoutes.get('/sonarr', async (req, res) => {
       activeAnimeLanguageProfileId: sonarr.activeAnimeLanguageProfileId,
       activeTags: [],
       buttonLabel: sonarr.buttonLabel,
+      animeOnly: sonarr.animeOnly,
     })
   );
 

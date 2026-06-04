@@ -53,6 +53,7 @@ interface RequestButtonProps {
   media?: Media;
   isShowComplete?: boolean;
   is4kShowComplete?: boolean;
+  isAnime?: boolean;
 }
 
 const RequestButton = ({
@@ -62,6 +63,7 @@ const RequestButton = ({
   mediaType,
   isShowComplete = false,
   is4kShowComplete = false,
+  isAnime = false,
 }: RequestButtonProps) => {
   const intl = useIntl();
   const settings = useSettings();
@@ -385,6 +387,11 @@ const RequestButton = ({
   const labelledServices = (allServices ?? []).filter((s) => s.buttonLabel);
 
   for (const service of labelledServices) {
+    // Anime-only services only expose their button for anime content
+    if (service.animeOnly && !isAnime) {
+      continue;
+    }
+
     // Hide the request button if the media already exists in this service
     // (available, processing/downloading, or partially available)
     const serviceStatusEntry = media?.serviceStatuses?.find(

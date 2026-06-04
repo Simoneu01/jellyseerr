@@ -50,6 +50,7 @@ import {
   ChevronDoubleUpIcon,
 } from '@heroicons/react/24/solid';
 import { type RatingResponse } from '@server/api/ratings';
+import { ANIME_KEYWORD_ID } from '@server/api/themoviedb/constants';
 import { IssueStatus } from '@server/constants/issue';
 import { MediaStatus, MediaType } from '@server/constants/media';
 import { MediaServerType } from '@server/constants/server';
@@ -634,6 +635,9 @@ const MovieDetails = ({ movie }: MovieDetailsProps) => {
             media={data.mediaInfo}
             tmdbId={data.id}
             onUpdate={() => revalidate()}
+            isAnime={data.keywords.some(
+              (keyword) => keyword.id === ANIME_KEYWORD_ID
+            )}
           />
           {(data.mediaInfo?.status === MediaStatus.AVAILABLE ||
             (settings.currentSettings.movie4kEnabled &&

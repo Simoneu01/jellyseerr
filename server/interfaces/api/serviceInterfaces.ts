@@ -15,6 +15,7 @@ export interface ServiceCommonServer {
   activeTags: number[];
   activeAnimeTags?: number[];
   buttonLabel?: string;
+  animeOnly?: boolean;
 }
 
 export interface ServiceCommonServerWithDetails {

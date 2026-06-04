@@ -69,6 +69,8 @@ const messages = defineMessages('components.Settings.SonarrModal', {
   syncEnabled: 'Enable Scan',
   externalUrl: 'External URL',
   enableSearch: 'Enable Automatic Search',
+  animeOnly: 'Anime Only',
+  animeOnlyHelp: 'Only show this server’s request button for anime content.',
   buttonLabel: 'Request Button Label',
   buttonLabelHelp:
     'Short label shown on the request button for this server (e.g. "ITA", "ENG"). Leave blank to hide the button.',
@@ -265,6 +267,7 @@ const SonarrModal = ({ onClose, sonarr, onSave }: SonarrModalProps) => {
           enableSearch: !sonarr?.preventSearch,
           tagRequests: sonarr?.tagRequests ?? false,
           buttonLabel: sonarr?.buttonLabel ?? '',
+          animeOnly: sonarr?.animeOnly ?? false,
           monitorNewItems: sonarr?.monitorNewItems ?? 'all',
         }}
         validationSchema={SonarrSettingsSchema}
@@ -310,6 +313,7 @@ const SonarrModal = ({ onClose, sonarr, onSave }: SonarrModalProps) => {
               preventSearch: !values.enableSearch,
               tagRequests: values.tagRequests,
               buttonLabel: values.buttonLabel || undefined,
+              animeOnly: values.animeOnly,
               monitorNewItems: values.monitorNewItems,
             };
             if (!sonarr) {
@@ -1124,6 +1128,17 @@ const SonarrModal = ({ onClose, sonarr, onSave }: SonarrModalProps) => {
                         placeholder="ITA"
                       />
                     </div>
+                  </div>
+                </div>
+                <div className="form-row">
+                  <label htmlFor="animeOnly" className="checkbox-label">
+                    {intl.formatMessage(messages.animeOnly)}
+                    <span className="label-tip">
+                      {intl.formatMessage(messages.animeOnlyHelp)}
+                    </span>
+                  </label>
+                  <div className="form-input-area">
+                    <Field type="checkbox" id="animeOnly" name="animeOnly" />
                   </div>
                 </div>
               </div>

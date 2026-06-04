@@ -678,6 +678,9 @@ const TvDetails = ({ tv }: TvDetailsProps) => {
             media={data?.mediaInfo}
             isShowComplete={isComplete}
             is4kShowComplete={is4kComplete}
+            isAnime={data.keywords.some(
+              (keyword) => keyword.id === ANIME_KEYWORD_ID
+            )}
           />
           {(data.mediaInfo?.status === MediaStatus.AVAILABLE ||
             data.mediaInfo?.status === MediaStatus.PARTIALLY_AVAILABLE ||

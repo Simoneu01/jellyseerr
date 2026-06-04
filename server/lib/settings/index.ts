@@ -85,6 +85,9 @@ export interface DVRSettings {
   tagRequests: boolean;
   overrideRule: number[];
   buttonLabel?: string;
+  // When true, this service's per-service request button is only shown for
+  // anime content (media tagged with the anime keyword).
+  animeOnly?: boolean;
 }
 
 export interface RadarrSettings extends DVRSettings {
