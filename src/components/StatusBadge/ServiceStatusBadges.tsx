@@ -1,10 +1,15 @@
 import StatusBadge from '@app/components/StatusBadge';
 import globalMessages from '@app/i18n/globalMessages';
+import defineMessages from '@app/utils/defineMessages';
 import { MediaStatus } from '@server/constants/media';
 import type MediaServiceStatus from '@server/entity/MediaServiceStatus';
 import type { ServiceCommonServer } from '@server/interfaces/api/serviceInterfaces';
 import { useIntl } from 'react-intl';
 import useSWR from 'swr';
+
+const messages = defineMessages('components.StatusBadge.ServiceStatusBadges', {
+  statusinservice: '{status} in {label}',
+});
 
 interface ServiceStatusBadgesProps {
   serviceStatuses?: MediaServiceStatus[];
@@ -73,7 +78,10 @@ const ServiceStatusBadges = ({
         <StatusBadge
           key={`service-badge-${server.id}`}
           status={status}
-          statusLabelOverride={`${statusLabel(status)} in ${server.buttonLabel ?? server.name}`}
+          statusLabelOverride={intl.formatMessage(messages.statusinservice, {
+            status: statusLabel(status),
+            label: server.buttonLabel ?? server.name,
+          })}
           mediaType={mediaType}
           plexUrl={plexUrl}
           tmdbId={tmdbId}
