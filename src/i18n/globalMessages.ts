@@ -32,7 +32,6 @@ const globalMessages = defineMessages('i18n', {
   deleting: 'Deleting…',
   test: 'Test',
   testing: 'Testing…',
-  add: 'Add',
   save: 'Save Changes',
   saving: 'Saving…',
   import: 'Import',

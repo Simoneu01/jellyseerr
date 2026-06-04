@@ -167,8 +167,8 @@ export class MediaRequest {
       }
 
       if (
-        (media.status === MediaStatus.UNKNOWN ||
-          media.status === MediaStatus.DELETED) &&
+        (media.status4k === MediaStatus.UNKNOWN ||
+          media.status4k === MediaStatus.DELETED) &&
         requestBody.is4k
       ) {
         media.status4k = MediaStatus.PENDING;
