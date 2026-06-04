@@ -277,8 +277,16 @@ const RequestButton = ({
     }
   }
 
+  // When a (non-managing) user has been granted specific request services,
+  // the default request button is replaced entirely by their per-service
+  // buttons. With no service grants, the default button behaves as before.
+  const restrictToServices =
+    (user?.requestServices ?? []).length > 0 &&
+    !hasPermission(Permission.MANAGE_REQUESTS);
+
   // Standard request button
   if (
+    !restrictToServices &&
     (!media ||
       media.status === MediaStatus.UNKNOWN ||
       (media.status === MediaStatus.DELETED && !activeRequest)) &&
@@ -302,6 +310,7 @@ const RequestButton = ({
       svg: <ArrowDownTrayIcon />,
     });
   } else if (
+    !restrictToServices &&
     mediaType === 'tv' &&
     (!activeRequest || activeRequest.requestedBy.id !== user?.id) &&
     hasPermission([Permission.REQUEST, Permission.REQUEST_TV], {
@@ -324,6 +333,7 @@ const RequestButton = ({
 
   // 4K request button
   if (
+    !restrictToServices &&
     (!media ||
       media.status4k === MediaStatus.UNKNOWN ||
       (media.status4k === MediaStatus.DELETED && !active4kRequest)) &&
@@ -349,6 +359,7 @@ const RequestButton = ({
       svg: <ArrowDownTrayIcon />,
     });
   } else if (
+    !restrictToServices &&
     mediaType === 'tv' &&
     (!active4kRequest || active4kRequest.requestedBy.id !== user?.id) &&
     hasPermission([Permission.REQUEST_4K, Permission.REQUEST_4K_TV], {
@@ -387,6 +398,15 @@ const RequestButton = ({
       continue;
     }
 
+    // Per-service access control: a user only sees a service's request button
+    // if they manage requests, or the service is in their allowed list.
+    const serviceIdentifier = `${
+      mediaType === 'movie' ? 'radarr' : 'sonarr'
+    }:${service.id}`;
+    const canUseService =
+      hasPermission(Permission.MANAGE_REQUESTS) ||
+      (user?.requestServices ?? []).includes(serviceIdentifier);
+
     const activeServiceRequests = media?.requests.filter(
       (r) =>
         r.serverId === service.id && r.status === MediaRequestStatus.PENDING
@@ -394,6 +414,12 @@ const RequestButton = ({
     const userServiceRequest = activeServiceRequests?.find(
       (r) => r.requestedBy.id === user?.id
     );
+
+    // Hide the service entirely if the user can't use it and has no pending
+    // request of their own to view/cancel.
+    if (!canUseService && !userServiceRequest) {
+      continue;
+    }
 
     if (
       userServiceRequest ||
