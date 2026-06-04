@@ -983,10 +983,7 @@ const MovieDetails = ({ movie }: MovieDetailsProps) => {
                   <Link
                     href={`/discover/movies/language/${data.originalLanguage}`}
                   >
-                    {/* Intl.DisplayNames capitalization can differ between the
-                        server (Node ICU) and the browser, so suppress the
-                        hydration warning for this locale-formatted text. */}
-                    <span suppressHydrationWarning>
+                    <span>
                       {intl.formatDisplayName(data.originalLanguage, {
                         type: 'language',
                         fallback: 'none',

@@ -1231,10 +1231,7 @@ const TvDetails = ({ tv }: TvDetailsProps) => {
                 <span>{intl.formatMessage(messages.originallanguage)}</span>
                 <span className="media-fact-value">
                   <Link href={`/discover/tv/language/${data.originalLanguage}`}>
-                    {/* Intl.DisplayNames capitalization can differ between the
-                        server (Node ICU) and the browser, so suppress the
-                        hydration warning for this locale-formatted text. */}
-                    <span suppressHydrationWarning>
+                    <span>
                       {intl.formatDisplayName(data.originalLanguage, {
                         type: 'language',
                         fallback: 'none',
