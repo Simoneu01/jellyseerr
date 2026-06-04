@@ -174,17 +174,17 @@ export class MediaRequest {
       .createQueryBuilder('request')
       .leftJoin('request.media', 'media')
       .leftJoinAndSelect('request.requestedBy', 'user')
-      .andWhere('media.tmdbId = :tmdbId', { tmdbId: tmdbMedia.id })
+      .where('media.tmdbId = :tmdbId', { tmdbId: tmdbMedia.id })
       .andWhere('media.mediaType = :mediaType', {
         mediaType: requestBody.mediaType,
       });
 
     if (isServiceSpecific) {
-      existingQuery.where('request.serverId = :serverId', {
+      existingQuery.andWhere('request.serverId = :serverId', {
         serverId: requestBody.serverId,
       });
     } else {
-      existingQuery.where('request.is4k = :is4k', {
+      existingQuery.andWhere('request.is4k = :is4k', {
         is4k: requestBody.is4k ?? false,
       });
     }
