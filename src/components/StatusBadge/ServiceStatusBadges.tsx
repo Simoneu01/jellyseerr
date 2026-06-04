@@ -16,6 +16,7 @@ interface ServiceStatusBadgesProps {
   mediaType: 'movie' | 'tv';
   plexUrl?: string;
   tmdbId?: number;
+  title?: string | string[];
   // When set, render per-season status for this season number instead of the
   // overall show status.
   seasonNumber?: number;
@@ -26,6 +27,7 @@ const ServiceStatusBadges = ({
   mediaType,
   plexUrl,
   tmdbId,
+  title,
   seasonNumber,
 }: ServiceStatusBadgesProps) => {
   const intl = useIntl();
@@ -66,7 +68,11 @@ const ServiceStatusBadges = ({
       ) {
         return null;
       }
-      return { server, status };
+      // Only surface live download progress for the overall show/movie badge,
+      // not the per-season badges (those only ever render available statuses).
+      const downloadItem =
+        seasonNumber === undefined ? (ss.downloadStatus ?? []) : [];
+      return { server, status, downloadItem };
     })
     .filter((x): x is NonNullable<typeof x> => x !== null);
 
@@ -74,10 +80,13 @@ const ServiceStatusBadges = ({
 
   return (
     <>
-      {items.map(({ server, status }) => (
+      {items.map(({ server, status, downloadItem }) => (
         <StatusBadge
           key={`service-badge-${server.id}`}
           status={status}
+          downloadItem={downloadItem}
+          inProgress={downloadItem.length > 0}
+          title={title}
           statusLabelOverride={intl.formatMessage(messages.statusinservice, {
             status: statusLabel(status),
             label: server.buttonLabel ?? server.name,

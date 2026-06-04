@@ -397,6 +397,29 @@ class Media {
         );
       }
     }
+
+    // Populate per-service download progress so the per-service status badges
+    // can surface the same live progress as the legacy status badge.
+    this.serviceStatuses?.forEach((serviceStatus) => {
+      if (
+        serviceStatus.externalServiceId === undefined ||
+        serviceStatus.externalServiceId === null
+      ) {
+        serviceStatus.downloadStatus = [];
+        return;
+      }
+
+      serviceStatus.downloadStatus =
+        serviceStatus.serviceType === 'sonarr'
+          ? downloadTracker.getSeriesProgress(
+              serviceStatus.serviceId,
+              serviceStatus.externalServiceId
+            )
+          : downloadTracker.getMovieProgress(
+              serviceStatus.serviceId,
+              serviceStatus.externalServiceId
+            );
+    });
   }
 }
 

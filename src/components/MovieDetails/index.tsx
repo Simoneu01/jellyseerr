@@ -512,6 +512,7 @@ const MovieDetails = ({ movie }: MovieDetailsProps) => {
                 mediaType="movie"
                 plexUrl={plexUrl}
                 tmdbId={data.mediaInfo.tmdbId}
+                title={data.title}
               />
             ) : (
               <>

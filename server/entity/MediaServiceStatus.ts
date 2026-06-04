@@ -1,4 +1,5 @@
 import { MediaStatus } from '@server/constants/media';
+import type { DownloadingItem } from '@server/lib/downloadtracker';
 import {
   Column,
   Entity,
@@ -65,6 +66,12 @@ class MediaServiceStatus {
     },
   })
   public seasonStatuses: Record<number, MediaStatus> | null;
+
+  /**
+   * Live download progress for this specific service, populated on load by
+   * {@link Media.getDownloadingItem}. Not persisted.
+   */
+  public downloadStatus?: DownloadingItem[] = [];
 
   constructor(init?: Partial<MediaServiceStatus>) {
     Object.assign(this, init);

@@ -553,6 +553,7 @@ const TvDetails = ({ tv }: TvDetailsProps) => {
                 mediaType="tv"
                 plexUrl={plexUrl}
                 tmdbId={data.mediaInfo.tmdbId}
+                title={data.name}
               />
             ) : (
               <>
