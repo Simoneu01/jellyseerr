@@ -141,7 +141,12 @@ const ManageSlideOver = ({
       await axios.delete(
         `/api/v1/media/${data.mediaInfo.id}/file?${params.toString()}`
       );
-      await axios.delete(`/api/v1/media/${data.mediaInfo.id}`);
+      // A per-service delete only clears that service's state (handled by the
+      // endpoint above); other services' availability and requests must
+      // survive, so the media row is only removed for the default flow.
+      if (serviceId === undefined) {
+        await axios.delete(`/api/v1/media/${data.mediaInfo.id}`);
+      }
       revalidate();
       onClose();
     }

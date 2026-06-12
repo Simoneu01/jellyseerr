@@ -10,7 +10,6 @@ import type {
 import { MediaStatus, MediaType } from '@server/constants/media';
 import { getRepository } from '@server/datasource';
 import Media from '@server/entity/Media';
-import MediaServiceStatus from '@server/entity/MediaServiceStatus';
 import type {
   ProcessableSeason,
   RunnableScanner,
@@ -20,7 +19,6 @@ import BaseScanner from '@server/lib/scanners/baseScanner';
 import type { SonarrSettings } from '@server/lib/settings';
 import { getSettings } from '@server/lib/settings';
 import { uniqWith } from 'lodash';
-import { In } from 'typeorm';
 
 type SyncStatus = StatusBase & {
   currentServer: SonarrSettings;
@@ -95,7 +93,14 @@ class SonarrScanner
           }
 
           await this.loop(this.processSonarrSeries.bind(this), { sessionId });
-          await this.resetStaleServiceStatus(server);
+          await this.resetStaleServiceStatus({
+            serviceId: server.id,
+            serviceType: 'sonarr',
+            mediaType: MediaType.TV,
+            seenTmdbIds: this.currentServerTmdbIds,
+            serverName: server.name,
+            clearSeasonStatuses: true,
+          });
         } else {
           this.log(`Sync not enabled. Skipping Sonarr server: ${server.name}`);
         }
@@ -217,51 +222,6 @@ class SonarrScanner
         title: sonarrSeries.title,
       });
     }
-  }
-
-  private async resetStaleServiceStatus(server: SonarrSettings): Promise<void> {
-    const mediaRepository = getRepository(Media);
-    const serviceStatusRepository = getRepository(MediaServiceStatus);
-
-    // Convert scanned tmdbIds to media DB ids. When nothing was found in this
-    // server, every status row it owns is stale and gets reset below.
-    const scannedMedia =
-      this.currentServerTmdbIds.size > 0
-        ? await mediaRepository.find({
-            where: {
-              tmdbId: In([...this.currentServerTmdbIds]),
-              mediaType: MediaType.TV,
-            },
-            select: ['id'],
-          })
-        : [];
-    const scannedMediaIds = scannedMedia.map((m) => m.id);
-
-    // Reset both the overall status AND the per-season statuses together so
-    // they can never diverge (otherwise the header badge could disappear while
-    // season badges still show as available).
-    // NOTE: Radarr and Sonarr server IDs are independent sequences (both start
-    // at 0), so we MUST scope by serviceType as well — otherwise a Sonarr reset
-    // would clobber Radarr rows that happen to share the same numeric serviceId.
-    await serviceStatusRepository
-      .createQueryBuilder()
-      .update()
-      .set({ status: MediaStatus.UNKNOWN, seasonStatuses: null })
-      .where('serviceId = :serviceId', { serviceId: server.id })
-      .andWhere('serviceType = :serviceType', { serviceType: 'sonarr' })
-      .andWhere('status NOT IN (:...exempt)', {
-        exempt: [MediaStatus.UNKNOWN, MediaStatus.DELETED],
-      })
-      .andWhere(
-        scannedMediaIds.length > 0 ? 'mediaId NOT IN (:...mediaIds)' : '1=1',
-        { mediaIds: scannedMediaIds }
-      )
-      .execute();
-
-    this.log(
-      `Reset stale service status for ${server.name} (${scannedMediaIds.length} items retained)`,
-      'info'
-    );
   }
 
   private async cleanupOrphanedShows(): Promise<void> {

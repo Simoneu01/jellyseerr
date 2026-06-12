@@ -720,7 +720,7 @@ const TvRequestModal = ({
         <AdvancedRequester
           type="tv"
           is4k={is4k}
-          tagsOnly={serverId != null}
+          serverFixed={serverId != null}
           isAnime={data?.keywords.some(
             (keyword) => keyword.id === ANIME_KEYWORD_ID
           )}

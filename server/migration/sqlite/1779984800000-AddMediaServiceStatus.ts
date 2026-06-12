@@ -17,10 +17,10 @@ export class AddMediaServiceStatus1779984800000 implements MigrationInterface {
       )
     `);
     await queryRunner.query(
-      `CREATE INDEX "IDX_media_service_status_mediaId" ON "media_service_status" ("mediaId")`
+      `CREATE INDEX IF NOT EXISTS "IDX_media_service_status_mediaId" ON "media_service_status" ("mediaId")`
     );
     await queryRunner.query(
-      `CREATE INDEX "IDX_media_service_status_serviceId" ON "media_service_status" ("serviceId")`
+      `CREATE INDEX IF NOT EXISTS "IDX_media_service_status_serviceId" ON "media_service_status" ("serviceId")`
     );
   }
 

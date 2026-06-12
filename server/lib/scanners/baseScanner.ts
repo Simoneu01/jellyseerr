@@ -906,6 +906,78 @@ class BaseScanner<T> {
     );
   }
 
+  /**
+   * Resets this server's MediaServiceStatus rows for titles that were NOT
+   * seen during the scan that just finished (i.e. they were removed from the
+   * server). Rows already UNKNOWN or DELETED are left alone.
+   *
+   * The diff is computed in memory and the updates are issued by primary key
+   * in chunks: passing the scanned id set as bound `IN (...)` parameters
+   * would exceed SQLite/Postgres parameter limits on large libraries.
+   *
+   * NOTE: Radarr and Sonarr server IDs are independent sequences (both start
+   * at 0), so candidates MUST be scoped by serviceType — otherwise a Radarr
+   * reset would clobber Sonarr rows sharing the same numeric serviceId.
+   * `clearSeasonStatuses` keeps the per-season map in sync with the overall
+   * status for Sonarr so the two can never diverge.
+   */
+  protected async resetStaleServiceStatus({
+    serviceId,
+    serviceType,
+    mediaType,
+    seenTmdbIds,
+    serverName,
+    clearSeasonStatuses = false,
+  }: {
+    serviceId: number;
+    serviceType: 'radarr' | 'sonarr';
+    mediaType: MediaType;
+    seenTmdbIds: Set<number>;
+    serverName: string;
+    clearSeasonStatuses?: boolean;
+  }): Promise<void> {
+    const serviceStatusRepository = getRepository(MediaServiceStatus);
+
+    const candidates: { id: number; tmdbId: number }[] =
+      await serviceStatusRepository
+        .createQueryBuilder('serviceStatus')
+        .innerJoin(Media, 'media', 'media.id = serviceStatus.mediaId')
+        .select('serviceStatus.id', 'id')
+        .addSelect('media.tmdbId', 'tmdbId')
+        .where('serviceStatus.serviceId = :serviceId', { serviceId })
+        .andWhere('serviceStatus.serviceType = :serviceType', { serviceType })
+        .andWhere('serviceStatus.status NOT IN (:...exempt)', {
+          exempt: [MediaStatus.UNKNOWN, MediaStatus.DELETED],
+        })
+        .andWhere('media.mediaType = :mediaType', { mediaType })
+        .getRawMany();
+
+    const staleIds = candidates
+      .filter((candidate) => !seenTmdbIds.has(Number(candidate.tmdbId)))
+      .map((candidate) => candidate.id);
+
+    const chunkSize = 500;
+    for (let i = 0; i < staleIds.length; i += chunkSize) {
+      await serviceStatusRepository
+        .createQueryBuilder()
+        .update()
+        .set(
+          clearSeasonStatuses
+            ? { status: MediaStatus.UNKNOWN, seasonStatuses: null }
+            : { status: MediaStatus.UNKNOWN }
+        )
+        .whereInIds(staleIds.slice(i, i + chunkSize))
+        .execute();
+    }
+
+    this.log(
+      `Reset ${staleIds.length} stale service status entries for ${serverName} (${
+        candidates.length - staleIds.length
+      } items retained)`,
+      'info'
+    );
+  }
+
   get protectedUpdateRate(): number {
     return this.updateRate;
   }

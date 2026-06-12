@@ -293,7 +293,7 @@ const MovieRequestModal = ({
           <AdvancedRequester
             type="movie"
             is4k={is4k}
-            tagsOnly={serverId != null}
+            serverFixed={serverId != null}
             requestUser={editRequest.requestedBy}
             defaultOverrides={{
               folder: editRequest.rootFolder,
@@ -366,7 +366,7 @@ const MovieRequestModal = ({
           <AdvancedRequester
             type="movie"
             is4k={is4k}
-            tagsOnly
+            serverFixed
             defaultOverrides={{ server: serverId }}
             onChange={(overrides) => {
               setRequestOverrides(overrides);

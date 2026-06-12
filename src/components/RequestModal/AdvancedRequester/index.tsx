@@ -55,10 +55,11 @@ interface AdvancedRequesterProps {
   isAnime?: boolean;
   defaultOverrides?: RequestOverrides;
   requestUser?: User;
-  // When true, the server/profile/folder/language and "request as" selectors are
-  // hidden and only the Tags selector is shown. Used for per-service requests
-  // where the destination server is already fixed by the request button.
-  tagsOnly?: boolean;
+  // When true, the destination server is fixed by a per-service request
+  // button: the server, root folder, and language profile selectors are
+  // hidden (the targeted service's defaults apply). Quality profile, tags,
+  // and "Request As" remain available.
+  serverFixed?: boolean;
   onChange: (overrides: RequestOverrides) => void;
 }
 
@@ -68,7 +69,7 @@ const AdvancedRequester = ({
   isAnime = false,
   defaultOverrides,
   requestUser,
-  tagsOnly = false,
+  serverFixed = false,
   onChange,
 }: AdvancedRequesterProps) => {
   const intl = useIntl();
@@ -319,7 +320,7 @@ const AdvancedRequester = ({
       <div className="rounded-md">
         {!!data && selectedServer !== null && (
           <div className="flex flex-col md:flex-row">
-            {!tagsOnly &&
+            {!serverFixed &&
               data.filter((server) => server.is4k === is4k).length > 1 && (
                 <div className="mb-3 w-full flex-shrink-0 flex-grow last:pr-0 md:w-1/4 md:pr-4">
                   <label htmlFor="server">
@@ -401,7 +402,7 @@ const AdvancedRequester = ({
                 </select>
               </div>
             )}
-            {!tagsOnly &&
+            {!serverFixed &&
               (isValidating ||
                 !serverData ||
                 serverData.rootFolders.length > 1) && (
@@ -456,7 +457,7 @@ const AdvancedRequester = ({
                   </select>
                 </div>
               )}
-            {!tagsOnly &&
+            {!serverFixed &&
               type === 'tv' &&
               (isValidating ||
                 !serverData ||

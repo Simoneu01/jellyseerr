@@ -3,7 +3,6 @@ import RadarrAPI from '@server/api/servarr/radarr';
 import { MediaStatus, MediaType } from '@server/constants/media';
 import { getRepository } from '@server/datasource';
 import Media from '@server/entity/Media';
-import MediaServiceStatus from '@server/entity/MediaServiceStatus';
 import type {
   RunnableScanner,
   StatusBase,
@@ -12,7 +11,6 @@ import BaseScanner from '@server/lib/scanners/baseScanner';
 import type { RadarrSettings } from '@server/lib/settings';
 import { getSettings } from '@server/lib/settings';
 import { uniqWith } from 'lodash';
-import { In } from 'typeorm';
 
 type SyncStatus = StatusBase & {
   currentServer: RadarrSettings;
@@ -87,7 +85,13 @@ class RadarrScanner
           }
 
           await this.loop(this.processRadarrMovie.bind(this), { sessionId });
-          await this.resetStaleServiceStatus(server);
+          await this.resetStaleServiceStatus({
+            serviceId: server.id,
+            serviceType: 'radarr',
+            mediaType: MediaType.MOVIE,
+            seenTmdbIds: this.currentServerTmdbIds,
+            serverName: server.name,
+          });
         } else {
           this.log(`Sync not enabled. Skipping Radarr server: ${server.name}`);
         }
@@ -145,49 +149,6 @@ class RadarrScanner
         title: radarrMovie.title,
       });
     }
-  }
-
-  private async resetStaleServiceStatus(server: RadarrSettings): Promise<void> {
-    const mediaRepository = getRepository(Media);
-    const serviceStatusRepository = getRepository(MediaServiceStatus);
-
-    // Convert scanned tmdbIds to media DB ids. When nothing was found in this
-    // server, every status row it owns is stale and gets reset below.
-    const scannedMedia =
-      this.currentServerTmdbIds.size > 0
-        ? await mediaRepository.find({
-            where: {
-              tmdbId: In([...this.currentServerTmdbIds]),
-              mediaType: MediaType.MOVIE,
-            },
-            select: ['id'],
-          })
-        : [];
-    const scannedMediaIds = scannedMedia.map((m) => m.id);
-
-    // Reset MediaServiceStatus rows for this server that weren't seen this scan.
-    // NOTE: Radarr and Sonarr server IDs are independent sequences (both start
-    // at 0), so we MUST scope by serviceType as well — otherwise a Radarr reset
-    // would clobber Sonarr rows that happen to share the same numeric serviceId.
-    await serviceStatusRepository
-      .createQueryBuilder()
-      .update()
-      .set({ status: MediaStatus.UNKNOWN })
-      .where('serviceId = :serviceId', { serviceId: server.id })
-      .andWhere('serviceType = :serviceType', { serviceType: 'radarr' })
-      .andWhere('status NOT IN (:...exempt)', {
-        exempt: [MediaStatus.UNKNOWN, MediaStatus.DELETED],
-      })
-      .andWhere(
-        scannedMediaIds.length > 0 ? 'mediaId NOT IN (:...mediaIds)' : '1=1',
-        { mediaIds: scannedMediaIds }
-      )
-      .execute();
-
-    this.log(
-      `Reset stale service status for ${server.name} (${scannedMediaIds.length} items retained)`,
-      'info'
-    );
   }
 
   private async cleanupOrphanedMovies(): Promise<void> {
