@@ -566,7 +566,15 @@ describe('POST /request, per-service slots', () => {
       }) as unknown as TmdbMovieDetails;
   });
 
+  async function grantServices(email: string, services: string[]) {
+    const userRepo = getRepository(User);
+    const user = await userRepo.findOneOrFail({ where: { email } });
+    user.requestServices = services;
+    await userRepo.save(user);
+  }
+
   it('keeps service-specific requests in slots separate from the standard slot', async () => {
+    await grantServices('friend@seerr.dev', ['radarr:0', 'radarr:1']);
     const friend = await loginAs('friend@seerr.dev', 'test1234');
     const admin = await loginAs('admin@seerr.dev', 'test1234');
 
@@ -620,5 +628,49 @@ describe('POST /request, per-service slots', () => {
       .post('/request')
       .send({ mediaType: 'movie', mediaId: 99901, isServiceRequest: true });
     assert.strictEqual(res.status, 500);
+  });
+
+  it('rejects a service request to a service the user has no grant for', async () => {
+    await grantServices('friend@seerr.dev', ['radarr:1']);
+    const friend = await loginAs('friend@seerr.dev', 'test1234');
+
+    const res = await friend.post('/request').send({
+      mediaType: 'movie',
+      mediaId: 99901,
+      serverId: 0,
+      isServiceRequest: true,
+    });
+    assert.strictEqual(res.status, 403);
+  });
+
+  it('allows a manager to make service requests without explicit grants', async () => {
+    const admin = await loginAs('admin@seerr.dev', 'test1234');
+
+    const res = await admin.post('/request').send({
+      mediaType: 'movie',
+      mediaId: 99901,
+      serverId: 0,
+      isServiceRequest: true,
+    });
+    assert.strictEqual(res.status, 201);
+  });
+
+  it('does not claim the standard media status slot', async () => {
+    await grantServices('friend@seerr.dev', ['radarr:0']);
+    const friend = await loginAs('friend@seerr.dev', 'test1234');
+
+    const res = await friend.post('/request').send({
+      mediaType: 'movie',
+      mediaId: 99901,
+      serverId: 0,
+      isServiceRequest: true,
+    });
+    assert.strictEqual(res.status, 201);
+
+    const media = await getRepository(Media).findOneOrFail({
+      where: { tmdbId: 99901, mediaType: MediaType.MOVIE },
+    });
+    assert.strictEqual(media.status, MediaStatus.UNKNOWN);
+    assert.strictEqual(media.status4k, MediaStatus.UNKNOWN);
   });
 });

@@ -407,14 +407,19 @@ export class MediaRequestSubscriber implements EntitySubscriberInterface<MediaRe
               throw new Error('Media data not found');
             }
 
-            media[entity.is4k ? 'externalServiceId4k' : 'externalServiceId'] =
-              radarrMovie.id;
-            media[
-              entity.is4k ? 'externalServiceSlug4k' : 'externalServiceSlug'
-            ] = radarrMovie.titleSlug;
-            media[entity.is4k ? 'serviceId4k' : 'serviceId'] =
-              radarrSettings?.id;
-            await mediaRepository.save(media);
+            // Service-specific requests don't claim the standard external
+            // service slots on the media row; the per-service status below
+            // records the linkage instead.
+            if (!entity.isServiceRequest) {
+              media[entity.is4k ? 'externalServiceId4k' : 'externalServiceId'] =
+                radarrMovie.id;
+              media[
+                entity.is4k ? 'externalServiceSlug4k' : 'externalServiceSlug'
+              ] = radarrMovie.titleSlug;
+              media[entity.is4k ? 'serviceId4k' : 'serviceId'] =
+                radarrSettings?.id;
+              await mediaRepository.save(media);
+            }
 
             // Record per-service status for this Radarr instance.
             if (radarrSettings?.id !== undefined) {
@@ -774,14 +779,19 @@ export class MediaRequestSubscriber implements EntitySubscriberInterface<MediaRe
               throw new Error('Media data not found');
             }
 
-            media[entity.is4k ? 'externalServiceId4k' : 'externalServiceId'] =
-              sonarrSeries.id;
-            media[
-              entity.is4k ? 'externalServiceSlug4k' : 'externalServiceSlug'
-            ] = sonarrSeries.titleSlug;
-            media[entity.is4k ? 'serviceId4k' : 'serviceId'] =
-              sonarrSettings?.id;
-            await mediaRepository.save(media);
+            // Service-specific requests don't claim the standard external
+            // service slots on the media row; the per-service status below
+            // records the linkage instead.
+            if (!entity.isServiceRequest) {
+              media[entity.is4k ? 'externalServiceId4k' : 'externalServiceId'] =
+                sonarrSeries.id;
+              media[
+                entity.is4k ? 'externalServiceSlug4k' : 'externalServiceSlug'
+              ] = sonarrSeries.titleSlug;
+              media[entity.is4k ? 'serviceId4k' : 'serviceId'] =
+                sonarrSettings?.id;
+              await mediaRepository.save(media);
+            }
 
             // Record per-service status for this Sonarr instance.
             if (sonarrSettings?.id !== undefined) {
@@ -896,7 +906,12 @@ export class MediaRequestSubscriber implements EntitySubscriberInterface<MediaRe
     const seasonRequestRepository = getRepository(SeasonRequest);
     const requestRepository = getRepository(MediaRequest);
 
+    // Service-specific requests never claim the Standard/4K media status
+    // slots — their state lives on the request itself and in
+    // MediaServiceStatus. Only the request's own child seasons are updated
+    // for them (see the APPROVED/DECLINED season blocks below).
     if (
+      !entity.isServiceRequest &&
       entity.status === MediaRequestStatus.APPROVED &&
       // Do not update the status if the item is already partially available or available
       media[statusKey] !== MediaStatus.AVAILABLE &&
@@ -908,6 +923,7 @@ export class MediaRequestSubscriber implements EntitySubscriberInterface<MediaRe
     }
 
     if (
+      !entity.isServiceRequest &&
       media.mediaType === MediaType.MOVIE &&
       entity.status === MediaRequestStatus.DECLINED &&
       media[statusKey] !== MediaStatus.DELETED
@@ -923,6 +939,7 @@ export class MediaRequestSubscriber implements EntitySubscriberInterface<MediaRe
      * other requests have yet to be approved)
      */
     if (
+      !entity.isServiceRequest &&
       media.mediaType === MediaType.TV &&
       entity.status === MediaRequestStatus.DECLINED &&
       media[statusKey] === MediaStatus.PENDING
@@ -932,6 +949,7 @@ export class MediaRequestSubscriber implements EntitySubscriberInterface<MediaRe
           media: { id: media.id },
           status: MediaRequestStatus.PENDING,
           is4k: entity.is4k,
+          isServiceRequest: false,
           id: Not(entity.id),
         },
       });
@@ -966,13 +984,20 @@ export class MediaRequestSubscriber implements EntitySubscriberInterface<MediaRe
           (s) => s.seasonNumber === seasonRequest.seasonNumber
         );
 
-        if (season && season[statusKey] === MediaStatus.PENDING) {
+        if (
+          !entity.isServiceRequest &&
+          season &&
+          season[statusKey] === MediaStatus.PENDING
+        ) {
           const otherActiveRequests = await requestRepository
             .createQueryBuilder('request')
             .leftJoinAndSelect('request.seasons', 'season')
             .where('request.mediaId = :mediaId', { mediaId: media.id })
             .andWhere('request.id != :requestId', { requestId: entity.id })
             .andWhere('request.is4k = :is4k', { is4k: entity.is4k })
+            .andWhere('request.isServiceRequest = :isServiceRequest', {
+              isServiceRequest: false,
+            })
             .andWhere('request.status NOT IN (:...statuses)', {
               statuses: [
                 MediaRequestStatus.DECLINED,
@@ -1008,6 +1033,12 @@ export class MediaRequestSubscriber implements EntitySubscriberInterface<MediaRe
     manager: EntityManager,
     entity: MediaRequest
   ): Promise<void> {
+    // Removing a service-specific request never affects the Standard/4K
+    // media status slots — it never claimed them.
+    if (entity.isServiceRequest) {
+      return;
+    }
+
     const fullMedia = await manager.findOneOrFail(Media, {
       where: { id: entity.media.id },
       relations: { requests: true },
@@ -1015,12 +1046,14 @@ export class MediaRequestSubscriber implements EntitySubscriberInterface<MediaRe
 
     const hasActive = fullMedia.requests.some(
       (request) =>
+        !request.isServiceRequest &&
         !request.is4k &&
         request.status !== MediaRequestStatus.COMPLETED &&
         request.status !== MediaRequestStatus.DECLINED
     );
     const hasActive4k = fullMedia.requests.some(
       (request) =>
+        !request.isServiceRequest &&
         request.is4k &&
         request.status !== MediaRequestStatus.COMPLETED &&
         request.status !== MediaRequestStatus.DECLINED
@@ -1044,7 +1077,10 @@ export class MediaRequestSubscriber implements EntitySubscriberInterface<MediaRe
 
       if (needsStatusUpdate) {
         const hadCompleted = fullMedia.requests.some(
-          (r) => !r.is4k && r.status === MediaRequestStatus.COMPLETED
+          (r) =>
+            !r.isServiceRequest &&
+            !r.is4k &&
+            r.status === MediaRequestStatus.COMPLETED
         );
         cleanMedia.status = hadCompleted
           ? MediaStatus.DELETED
@@ -1053,7 +1089,10 @@ export class MediaRequestSubscriber implements EntitySubscriberInterface<MediaRe
 
       if (needs4kStatusUpdate) {
         const hadCompleted4k = fullMedia.requests.some(
-          (r) => r.is4k && r.status === MediaRequestStatus.COMPLETED
+          (r) =>
+            !r.isServiceRequest &&
+            r.is4k &&
+            r.status === MediaRequestStatus.COMPLETED
         );
         cleanMedia.status4k = hadCompleted4k
           ? MediaStatus.DELETED

@@ -547,7 +547,14 @@ const TvDetails = ({ tv }: TvDetailsProps) => {
         </div>
         <div className="media-title">
           <div className="media-status">
-            {data.mediaInfo?.serviceStatuses?.length ? (
+            {/* Fall back to the legacy badges unless at least one service
+                status would actually render — rows can all be UNKNOWN (e.g.
+                removed from every service but still available on Plex). */}
+            {data.mediaInfo?.serviceStatuses?.some(
+              (ss) =>
+                ss.status !== MediaStatus.UNKNOWN &&
+                ss.status !== MediaStatus.DELETED
+            ) ? (
               <ServiceStatusBadges
                 serviceStatuses={data.mediaInfo.serviceStatuses}
                 mediaType="tv"

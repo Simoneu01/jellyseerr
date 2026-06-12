@@ -29,6 +29,7 @@ import {
   UpdateDateColumn,
 } from 'typeorm';
 import Media from './Media';
+import MediaServiceStatus from './MediaServiceStatus';
 import SeasonRequest from './SeasonRequest';
 import { User } from './User';
 
@@ -149,12 +150,35 @@ export class MediaRequest {
       );
     }
 
+    // Per-service requests are gated by the user's service grants
+    // (User.requestServices) unless they can manage requests. This mirrors
+    // the client-side filtering in RequestButton, which only hides buttons.
+    if (
+      isServiceSpecific &&
+      !user.hasPermission(Permission.MANAGE_REQUESTS) &&
+      !(user.requestServices ?? []).includes(
+        `${requestBody.mediaType === MediaType.MOVIE ? 'radarr' : 'sonarr'}:${
+          requestBody.serverId
+        }`
+      )
+    ) {
+      throw new RequestPermissionError(
+        'You do not have permission to request in this service.'
+      );
+    }
+
     if (!media) {
       media = new Media({
         tmdbId: tmdbMedia.id,
         tvdbId: requestBody.tvdbId ?? tmdbMedia.external_ids.tvdb_id,
-        status: !requestBody.is4k ? MediaStatus.PENDING : MediaStatus.UNKNOWN,
-        status4k: requestBody.is4k ? MediaStatus.PENDING : MediaStatus.UNKNOWN,
+        status:
+          !requestBody.is4k && !isServiceSpecific
+            ? MediaStatus.PENDING
+            : MediaStatus.UNKNOWN,
+        status4k:
+          requestBody.is4k && !isServiceSpecific
+            ? MediaStatus.PENDING
+            : MediaStatus.UNKNOWN,
         mediaType: requestBody.mediaType,
       });
     } else {
@@ -169,6 +193,7 @@ export class MediaRequest {
       }
 
       if (
+        !isServiceSpecific &&
         (media.status === MediaStatus.UNKNOWN ||
           media.status === MediaStatus.DELETED) &&
         !requestBody.is4k
@@ -177,6 +202,7 @@ export class MediaRequest {
       }
 
       if (
+        !isServiceSpecific &&
         (media.status4k === MediaStatus.UNKNOWN ||
           media.status4k === MediaStatus.DELETED) &&
         requestBody.is4k
@@ -474,8 +500,29 @@ export class MediaRequest {
           }, [] as number[]);
       }
 
-      // We should also check seasons that are available/partially available but don't have existing requests
-      if (media.seasons) {
+      // We should also check seasons that are available/partially available
+      // but don't have existing requests. For a service-specific request the
+      // relevant availability is the targeted service's own season statuses —
+      // a season available elsewhere must still be requestable here.
+      if (isServiceSpecific) {
+        if (media.id) {
+          const serviceStatus = await getRepository(MediaServiceStatus).findOne(
+            {
+              where: { mediaId: media.id, serviceId: requestBody.serverId },
+            }
+          );
+          existingSeasons = [
+            ...existingSeasons,
+            ...Object.entries(serviceStatus?.seasonStatuses ?? {})
+              .filter(
+                ([, status]) =>
+                  status !== MediaStatus.UNKNOWN &&
+                  status !== MediaStatus.DELETED
+              )
+              .map(([seasonNumber]) => Number(seasonNumber)),
+          ];
+        }
+      } else if (media.seasons) {
         existingSeasons = [
           ...existingSeasons,
           ...media.seasons
