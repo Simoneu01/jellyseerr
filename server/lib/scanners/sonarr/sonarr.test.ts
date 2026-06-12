@@ -5,11 +5,18 @@ import type {
   TmdbTvDetails,
   TmdbTvSeasonResult,
 } from '@server/api/themoviedb/interfaces';
-import { MediaStatus, MediaType } from '@server/constants/media';
+import {
+  MediaRequestStatus,
+  MediaStatus,
+  MediaType,
+} from '@server/constants/media';
 import { getRepository } from '@server/datasource';
 import Media from '@server/entity/Media';
+import { MediaRequest } from '@server/entity/MediaRequest';
 import MediaServiceStatus from '@server/entity/MediaServiceStatus';
 import Season from '@server/entity/Season';
+import SeasonRequest from '@server/entity/SeasonRequest';
+import { User } from '@server/entity/User';
 import type { SonarrSettings } from '@server/lib/settings';
 import { getSettings } from '@server/lib/settings';
 import { setupTestDb } from '@server/test/db';
@@ -570,6 +577,58 @@ describe('Sonarr Scanner', () => {
         where: { mediaId: media.id, serviceId: 0 },
       });
       assert.strictEqual(reScanned?.status, MediaStatus.AVAILABLE);
+    });
+
+    it('completes an approved service request once the service has all requested seasons', async () => {
+      const media = await seedShow();
+      const requestRepository = getRepository(MediaRequest);
+      const admin = await getRepository(User).findOneOrFail({
+        where: { email: 'admin@seerr.dev' },
+      });
+
+      configureAvailableSeries();
+
+      // Saving the APPROVED request fires the subscriber's sendToSonarr, so
+      // the add call must be stubbed to behave like a successful send.
+      const originalAddSeries = SonarrAPI.prototype.addSeries;
+      SonarrAPI.prototype.addSeries = async () =>
+        fakeSonarrSeries({ tvdbId: 200 });
+
+      try {
+        const request = await requestRepository.save(
+          new MediaRequest({
+            type: MediaType.TV,
+            status: MediaRequestStatus.APPROVED,
+            media,
+            requestedBy: admin,
+            is4k: false,
+            serverId: 0,
+            isServiceRequest: true,
+            seasons: [
+              new SeasonRequest({
+                seasonNumber: 1,
+                status: MediaRequestStatus.APPROVED,
+              }),
+            ],
+          })
+        );
+
+        await sonarrScanner.run();
+
+        const completed = await requestRepository.findOneOrFail({
+          where: { id: request.id },
+        });
+        assert.strictEqual(completed.status, MediaRequestStatus.COMPLETED);
+
+        // The standard media status slots must remain untouched by the
+        // service request's lifecycle.
+        const untouchedMedia = await getRepository(Media).findOneOrFail({
+          where: { id: media.id },
+        });
+        assert.notStrictEqual(untouchedMedia.status, MediaStatus.PROCESSING);
+      } finally {
+        SonarrAPI.prototype.addSeries = originalAddSeries;
+      }
     });
 
     it('resets only its own stale rows when the server returns no series', async () => {

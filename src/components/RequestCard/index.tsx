@@ -11,6 +11,7 @@ import { Permission, useUser } from '@app/hooks/useUser';
 import globalMessages from '@app/i18n/globalMessages';
 import defineMessages from '@app/utils/defineMessages';
 import { refreshIntervalHelper } from '@app/utils/refreshIntervalHelper';
+import { getServiceSlotStatus } from '@app/utils/serviceRequestStatus';
 import { withProperties } from '@app/utils/typeHelpers';
 import {
   ArrowPathIcon,
@@ -264,6 +265,9 @@ const RequestCard = ({ request, onTitleData }: RequestCardProps) => {
     iOSPlexUrl4k: requestData?.media?.iOSPlexUrl4k,
   });
 
+  const { status: serviceSlotStatus, downloadItem: serviceDownloadStatus } =
+    getServiceSlotStatus(requestData);
+
   const modifyRequest = async (type: 'approve' | 'decline') => {
     setUpdatingType(type);
     try {
@@ -455,9 +459,11 @@ const RequestCard = ({ request, onTitleData }: RequestCardProps) => {
             ) : (
               <StatusBadge
                 status={
+                  serviceSlotStatus ??
                   requestData.media[requestData.is4k ? 'status4k' : 'status']
                 }
                 downloadItem={
+                  serviceDownloadStatus ??
                   requestData.media[
                     requestData.is4k ? 'downloadStatus4k' : 'downloadStatus'
                   ]
@@ -465,9 +471,11 @@ const RequestCard = ({ request, onTitleData }: RequestCardProps) => {
                 title={isMovie(title) ? title.title : title.name}
                 inProgress={
                   (
+                    serviceDownloadStatus ??
                     requestData.media[
                       requestData.is4k ? 'downloadStatus4k' : 'downloadStatus'
-                    ] ?? []
+                    ] ??
+                    []
                   ).length > 0
                 }
                 is4k={requestData.is4k}
@@ -475,9 +483,11 @@ const RequestCard = ({ request, onTitleData }: RequestCardProps) => {
                 mediaType={requestData.type}
                 plexUrl={requestData.is4k ? plexUrl4k : plexUrl}
                 serviceUrl={
-                  requestData.is4k
-                    ? requestData.media.serviceUrl4k
-                    : requestData.media.serviceUrl
+                  requestData.isServiceRequest
+                    ? undefined
+                    : requestData.is4k
+                      ? requestData.media.serviceUrl4k
+                      : requestData.media.serviceUrl
                 }
               />
             )}

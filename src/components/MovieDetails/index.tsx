@@ -677,7 +677,11 @@ const MovieDetails = ({ movie }: MovieDetailsProps) => {
             (data.mediaInfo.jellyfinMediaId ||
               data.mediaInfo.jellyfinMediaId4k ||
               data.mediaInfo.status !== MediaStatus.UNKNOWN ||
-              data.mediaInfo.status4k !== MediaStatus.UNKNOWN) && (
+              data.mediaInfo.status4k !== MediaStatus.UNKNOWN ||
+              // Service requests don't touch the Standard/4K slots, so the
+              // manage button must also key off per-service state
+              (data.mediaInfo.serviceStatuses ?? []).length > 0 ||
+              (data.mediaInfo.requests ?? []).length > 0) && (
               <Tooltip content={intl.formatMessage(messages.managemovie)}>
                 <Button
                   buttonType="ghost"

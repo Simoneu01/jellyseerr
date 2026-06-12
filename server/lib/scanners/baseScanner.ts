@@ -1,7 +1,12 @@
 import TheMovieDb from '@server/api/themoviedb';
-import { MediaStatus, MediaType } from '@server/constants/media';
+import {
+  MediaRequestStatus,
+  MediaStatus,
+  MediaType,
+} from '@server/constants/media';
 import { getRepository } from '@server/datasource';
 import Media from '@server/entity/Media';
+import { MediaRequest } from '@server/entity/MediaRequest';
 import MediaServiceStatus from '@server/entity/MediaServiceStatus';
 import Season from '@server/entity/Season';
 import { upsertMediaServiceStatus } from '@server/lib/mediaServiceStatus';
@@ -904,6 +909,66 @@ class BaseScanner<T> {
       },
       ['status', 'externalServiceId', 'externalServiceSlug', 'seasonStatuses']
     );
+
+    // Service requests aren't completed by the media subscriber (their
+    // availability isn't reflected in media.status), so the scan is the
+    // signal that the service now has the title.
+    if (
+      status === MediaStatus.AVAILABLE ||
+      Object.values(seasonStatuses ?? {}).some(
+        (seasonStatus) => seasonStatus === MediaStatus.AVAILABLE
+      )
+    ) {
+      await this.completeAvailableServiceRequests(
+        mediaId,
+        serviceId,
+        status,
+        seasonStatuses
+      );
+    }
+  }
+
+  /**
+   * Transitions this service's APPROVED service-specific requests to
+   * COMPLETED once the title (movies) or every requested season (TV) is
+   * available in the service. Requests are saved through the repository so
+   * the MediaRequest subscriber fires the availability notification.
+   */
+  private async completeAvailableServiceRequests(
+    mediaId: number,
+    serviceId: number,
+    status: MediaStatus,
+    seasonStatuses: Record<number, MediaStatus> | null
+  ): Promise<void> {
+    const requestRepository = getRepository(MediaRequest);
+    const approvedRequests = await requestRepository.find({
+      where: {
+        media: { id: mediaId },
+        serverId: serviceId,
+        isServiceRequest: true,
+        status: MediaRequestStatus.APPROVED,
+      },
+    });
+
+    for (const request of approvedRequests) {
+      const isComplete =
+        request.type === MediaType.MOVIE
+          ? status === MediaStatus.AVAILABLE
+          : request.seasons.length > 0 &&
+            request.seasons.every(
+              (season) =>
+                seasonStatuses?.[season.seasonNumber] === MediaStatus.AVAILABLE
+            );
+
+      if (isComplete) {
+        request.status = MediaRequestStatus.COMPLETED;
+        await requestRepository.save(request);
+        this.log(
+          `Service request ${request.id} marked as completed (service ${serviceId})`,
+          'info'
+        );
+      }
+    }
   }
 
   /**

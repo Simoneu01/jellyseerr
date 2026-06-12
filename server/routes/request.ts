@@ -125,6 +125,9 @@ requestRoutes.get<Record<string, unknown>, RequestResultsResponse>(
       let query = getRepository(MediaRequest)
         .createQueryBuilder('request')
         .leftJoinAndSelect('request.media', 'media')
+        // Needed so service-specific requests can display their per-service
+        // status (the Standard/4K slots don't apply to them)
+        .leftJoinAndSelect('media.serviceStatuses', 'serviceStatuses')
         .leftJoinAndSelect('request.seasons', 'seasons')
         .leftJoinAndSelect('request.modifiedBy', 'modifiedBy')
         .leftJoinAndSelect('request.requestedBy', 'requestedBy')
@@ -132,7 +135,10 @@ requestRoutes.get<Record<string, unknown>, RequestResultsResponse>(
           requestStatus: statusFilter,
         })
         .andWhere(
-          '((request.is4k = false AND media.status IN (:...mediaStatus)) OR (request.is4k = true AND media.status4k IN (:...mediaStatus)))',
+          // Service-specific requests bypass the media status filter: their
+          // availability lives in MediaServiceStatus, not the Standard/4K
+          // slots, so they are filtered by request status alone.
+          '(request.isServiceRequest = true OR (request.is4k = false AND media.status IN (:...mediaStatus)) OR (request.is4k = true AND media.status4k IN (:...mediaStatus)))',
           {
             mediaStatus: mediaStatusFilter,
           }
@@ -444,7 +450,13 @@ requestRoutes.get('/:requestId', async (req, res, next) => {
   try {
     const request = await requestRepository.findOneOrFail({
       where: { id: Number(req.params.requestId) },
-      relations: { requestedBy: true, modifiedBy: true },
+      relations: {
+        requestedBy: true,
+        modifiedBy: true,
+        // Needed so service-specific requests can display their per-service
+        // status (the Standard/4K slots don't apply to them)
+        media: { serviceStatuses: true },
+      },
     });
 
     if (

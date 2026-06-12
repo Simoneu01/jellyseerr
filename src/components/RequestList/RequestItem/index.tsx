@@ -11,6 +11,7 @@ import { Permission, useUser } from '@app/hooks/useUser';
 import globalMessages from '@app/i18n/globalMessages';
 import defineMessages from '@app/utils/defineMessages';
 import { refreshIntervalHelper } from '@app/utils/refreshIntervalHelper';
+import { getServiceSlotStatus } from '@app/utils/serviceRequestStatus';
 import {
   ArrowPathIcon,
   CheckIcon,
@@ -79,6 +80,9 @@ const RequestItemError = ({
     iOSPlexUrl4k: requestData?.media?.iOSPlexUrl4k,
   });
 
+  const { status: serviceSlotStatus, downloadItem: serviceDownloadStatus } =
+    getServiceSlotStatus(requestData);
+
   return (
     <div className="flex h-64 w-full flex-col justify-center rounded-xl bg-gray-800 py-4 text-gray-400 shadow-md ring-1 ring-red-500 xl:h-28 xl:flex-row">
       <div className="flex w-full flex-col justify-between overflow-hidden sm:flex-row">
@@ -134,11 +138,13 @@ const RequestItemError = ({
                 ) : (
                   <StatusBadge
                     status={
+                      serviceSlotStatus ??
                       requestData.media[
                         requestData.is4k ? 'status4k' : 'status'
                       ]
                     }
                     downloadItem={
+                      serviceDownloadStatus ??
                       requestData.media[
                         requestData.is4k ? 'downloadStatus4k' : 'downloadStatus'
                       ]
@@ -146,20 +152,24 @@ const RequestItemError = ({
                     title={intl.formatMessage(messages.unknowntitle)}
                     inProgress={
                       (
+                        serviceDownloadStatus ??
                         requestData.media[
                           requestData.is4k
                             ? 'downloadStatus4k'
                             : 'downloadStatus'
-                        ] ?? []
+                        ] ??
+                        []
                       ).length > 0
                     }
                     is4k={requestData.is4k}
                     mediaType={requestData.type}
                     plexUrl={requestData.is4k ? plexUrl4k : plexUrl}
                     serviceUrl={
-                      requestData.is4k
-                        ? requestData.media.serviceUrl4k
-                        : requestData.media.serviceUrl
+                      requestData.isServiceRequest
+                        ? undefined
+                        : requestData.is4k
+                          ? requestData.media.serviceUrl4k
+                          : requestData.media.serviceUrl
                     }
                   />
                 )}
@@ -327,6 +337,9 @@ const RequestItem = ({ request, revalidateList }: RequestItemProps) => {
   const [updatingType, setUpdatingType] = useState<
     'approve' | 'decline' | null
   >(null);
+
+  const { status: serviceSlotStatus, downloadItem: serviceDownloadStatus } =
+    getServiceSlotStatus(requestData);
 
   const modifyRequest = async (type: 'approve' | 'decline') => {
     setUpdatingType(type);
@@ -526,9 +539,11 @@ const RequestItem = ({ request, revalidateList }: RequestItemProps) => {
               ) : (
                 <StatusBadge
                   status={
+                    serviceSlotStatus ??
                     requestData.media[requestData.is4k ? 'status4k' : 'status']
                   }
                   downloadItem={
+                    serviceDownloadStatus ??
                     requestData.media[
                       requestData.is4k ? 'downloadStatus4k' : 'downloadStatus'
                     ]
@@ -536,9 +551,11 @@ const RequestItem = ({ request, revalidateList }: RequestItemProps) => {
                   title={isMovie(title) ? title.title : title.name}
                   inProgress={
                     (
+                      serviceDownloadStatus ??
                       requestData.media[
                         requestData.is4k ? 'downloadStatus4k' : 'downloadStatus'
-                      ] ?? []
+                      ] ??
+                      []
                     ).length > 0
                   }
                   is4k={requestData.is4k}
@@ -546,9 +563,11 @@ const RequestItem = ({ request, revalidateList }: RequestItemProps) => {
                   mediaType={requestData.type}
                   plexUrl={requestData.is4k ? plexUrl4k : plexUrl}
                   serviceUrl={
-                    requestData.is4k
-                      ? requestData.media.serviceUrl4k
-                      : requestData.media.serviceUrl
+                    requestData.isServiceRequest
+                      ? undefined
+                      : requestData.is4k
+                        ? requestData.media.serviceUrl4k
+                        : requestData.media.serviceUrl
                   }
                 />
               )}
