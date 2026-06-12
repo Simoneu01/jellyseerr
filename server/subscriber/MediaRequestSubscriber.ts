@@ -68,7 +68,7 @@ export class MediaRequestSubscriber implements EntitySubscriberInterface<MediaRe
       return;
     }
     if (
-      entity.serverId == null &&
+      !entity.isServiceRequest &&
       latestMedia[entity.is4k ? 'status4k' : 'status'] !== MediaStatus.AVAILABLE
     ) {
       return;
@@ -133,7 +133,7 @@ export class MediaRequestSubscriber implements EntitySubscriberInterface<MediaRe
 
     // For service-specific requests, the COMPLETED request status is enough
     // to notify — skip the global season availability check.
-    if (entity.serverId == null) {
+    if (!entity.isServiceRequest) {
       const requestedSeasons =
         entity.seasons?.map((entitySeason) => entitySeason.seasonNumber) ?? [];
       const availableSeasons = latestMedia.seasons.filter(
@@ -357,11 +357,11 @@ export class MediaRequestSubscriber implements EntitySubscriberInterface<MediaRe
         // For service-specific requests, only skip if THAT specific service
         // already has the media — not just any service.
         const isAlreadyAvailable =
-          entity.serverId != null
+          entity.isServiceRequest && entity.serverId != null
             ? await (async () => {
                 const serviceStatusRepo = getRepository(MediaServiceStatus);
                 const ss = await serviceStatusRepo.findOne({
-                  where: { mediaId: media.id, serviceId: entity.serverId! },
+                  where: { mediaId: media.id, serviceId: entity.serverId },
                 });
                 return ss?.status === MediaStatus.AVAILABLE;
               })()
@@ -577,11 +577,11 @@ export class MediaRequestSubscriber implements EntitySubscriberInterface<MediaRe
         }
 
         const isAlreadyAvailableSonarr =
-          entity.serverId != null
+          entity.isServiceRequest && entity.serverId != null
             ? await (async () => {
                 const serviceStatusRepo = getRepository(MediaServiceStatus);
                 const ss = await serviceStatusRepo.findOne({
-                  where: { mediaId: media.id, serviceId: entity.serverId! },
+                  where: { mediaId: media.id, serviceId: entity.serverId },
                 });
                 return ss?.status === MediaStatus.AVAILABLE;
               })()

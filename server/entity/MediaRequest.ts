@@ -132,12 +132,22 @@ export class MediaRequest {
       relations: ['requests'],
     });
 
-    // A request targeting a specific service does not affect the Standard/4K
-    // media status slots — those remain meaningful only for the default servers.
+    // A request explicitly targeting a specific service (per-service request
+    // button) does not affect the Standard/4K media status slots — those remain
+    // meaningful only for the default servers. The explicit flag distinguishes
+    // these from advanced requests, which also carry a serverId but still
+    // occupy the regular Standard/4K slot.
     const isServiceSpecific =
+      !!requestBody.isServiceRequest &&
       requestBody.serverId !== undefined &&
       requestBody.serverId !== null &&
       requestBody.serverId >= 0;
+
+    if (requestBody.isServiceRequest && !isServiceSpecific) {
+      throw new Error(
+        'Service-specific requests must target a valid serverId.'
+      );
+    }
 
     if (!media) {
       media = new Media({
@@ -176,8 +186,10 @@ export class MediaRequest {
     }
 
     // Duplicate detection:
-    // - When a specific service is targeted (serverId set), one request per service is allowed.
-    // - For default routing (no explicit serverId), one request per is4k slot is allowed.
+    // - A service-specific request occupies its own per-service slot: one
+    //   request per (service, media) is allowed.
+    // - All other requests (including advanced requests that pin a server)
+    //   occupy the regular slot: one request per is4k slot is allowed.
     const existingQuery = requestRepository
       .createQueryBuilder('request')
       .leftJoin('request.media', 'media')
@@ -188,13 +200,21 @@ export class MediaRequest {
       });
 
     if (isServiceSpecific) {
-      existingQuery.andWhere('request.serverId = :serverId', {
-        serverId: requestBody.serverId,
-      });
+      existingQuery
+        .andWhere('request.isServiceRequest = :isServiceRequest', {
+          isServiceRequest: true,
+        })
+        .andWhere('request.serverId = :serverId', {
+          serverId: requestBody.serverId,
+        });
     } else {
-      existingQuery.andWhere('request.is4k = :is4k', {
-        is4k: requestBody.is4k ?? false,
-      });
+      existingQuery
+        .andWhere('request.isServiceRequest = :isServiceRequest', {
+          isServiceRequest: false,
+        })
+        .andWhere('request.is4k = :is4k', {
+          is4k: requestBody.is4k ?? false,
+        });
     }
 
     const existing = await existingQuery.getMany();
@@ -402,6 +422,7 @@ export class MediaRequest {
           : undefined,
         is4k: requestBody.is4k,
         serverId: serverId,
+        isServiceRequest: isServiceSpecific,
         profileId: profileId,
         rootFolder: rootFolder,
         tags: tags,
@@ -432,11 +453,12 @@ export class MediaRequest {
       if (media.requests) {
         existingSeasons = media.requests
           .filter((request) => {
-            // When targeting a specific service, deduplicate by serverId.
-            // For default routing, deduplicate by is4k.
+            // Service-specific requests deduplicate within their own
+            // per-service slot; everything else within the is4k slot.
             const sameSlot = isServiceSpecific
-              ? request.serverId === requestBody.serverId
-              : request.is4k === requestBody.is4k;
+              ? request.isServiceRequest &&
+                request.serverId === requestBody.serverId
+              : !request.isServiceRequest && request.is4k === requestBody.is4k;
             return (
               sameSlot &&
               request.status !== MediaRequestStatus.DECLINED &&
@@ -518,6 +540,7 @@ export class MediaRequest {
           : undefined,
         is4k: requestBody.is4k,
         serverId: serverId,
+        isServiceRequest: isServiceSpecific,
         profileId: profileId,
         rootFolder: rootFolder,
         languageProfileId: requestBody.languageProfileId,
@@ -605,6 +628,15 @@ export class MediaRequest {
 
   @Column({ nullable: true })
   public serverId: number;
+
+  /**
+   * True when this request explicitly targets a specific service via a
+   * per-service request button (occupying that service's slot rather than the
+   * Standard/4K slot). Advanced requests that merely pin a destination server
+   * keep this false.
+   */
+  @Column({ default: false })
+  public isServiceRequest: boolean;
 
   @Column({ nullable: true })
   public profileId: number;

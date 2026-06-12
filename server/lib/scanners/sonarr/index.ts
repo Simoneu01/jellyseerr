@@ -223,26 +223,18 @@ class SonarrScanner
     const mediaRepository = getRepository(Media);
     const serviceStatusRepository = getRepository(MediaServiceStatus);
 
-    if (this.currentServerTmdbIds.size === 0) {
-      await serviceStatusRepository
-        .createQueryBuilder()
-        .update()
-        .set({ status: MediaStatus.UNKNOWN })
-        .where('serviceId = :serviceId', { serviceId: server.id })
-        .andWhere('status NOT IN (:...exempt)', {
-          exempt: [MediaStatus.UNKNOWN, MediaStatus.DELETED],
-        })
-        .execute();
-      return;
-    }
-
-    const scannedMedia = await mediaRepository.find({
-      where: {
-        tmdbId: In([...this.currentServerTmdbIds]),
-        mediaType: MediaType.TV,
-      },
-      select: ['id'],
-    });
+    // Convert scanned tmdbIds to media DB ids. When nothing was found in this
+    // server, every status row it owns is stale and gets reset below.
+    const scannedMedia =
+      this.currentServerTmdbIds.size > 0
+        ? await mediaRepository.find({
+            where: {
+              tmdbId: In([...this.currentServerTmdbIds]),
+              mediaType: MediaType.TV,
+            },
+            select: ['id'],
+          })
+        : [];
     const scannedMediaIds = scannedMedia.map((m) => m.id);
 
     // Reset both the overall status AND the per-season statuses together so

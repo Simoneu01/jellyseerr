@@ -571,5 +571,53 @@ describe('Sonarr Scanner', () => {
       });
       assert.strictEqual(reScanned?.status, MediaStatus.AVAILABLE);
     });
+
+    it('resets only its own stale rows when the server returns no series', async () => {
+      const mediaRepository = getRepository(Media);
+      const serviceStatusRepository = getRepository(MediaServiceStatus);
+
+      const show = await seedShow();
+      await serviceStatusRepository.save(
+        new MediaServiceStatus({
+          mediaId: show.id,
+          serviceId: 0,
+          serviceType: 'sonarr',
+          status: MediaStatus.AVAILABLE,
+          seasonStatuses: { 1: MediaStatus.AVAILABLE },
+        })
+      );
+
+      // Radarr server with the same numeric id (the two are independent
+      // sequences) — its row must survive the Sonarr reset.
+      const movie = new Media();
+      movie.tmdbId = 2;
+      movie.mediaType = MediaType.MOVIE;
+      movie.status = MediaStatus.AVAILABLE;
+      await mediaRepository.save(movie);
+      await serviceStatusRepository.save(
+        new MediaServiceStatus({
+          mediaId: movie.id,
+          serviceId: 0,
+          serviceType: 'radarr',
+          status: MediaStatus.AVAILABLE,
+        })
+      );
+
+      configureSonarr([{ syncEnabled: true }]);
+      getSeriesImpl = async () => [];
+
+      await sonarrScanner.run();
+
+      const sonarrRow = await serviceStatusRepository.findOneOrFail({
+        where: { mediaId: show.id, serviceId: 0 },
+      });
+      assert.strictEqual(sonarrRow.status, MediaStatus.UNKNOWN);
+      assert.strictEqual(sonarrRow.seasonStatuses, null);
+
+      const radarrRow = await serviceStatusRepository.findOneOrFail({
+        where: { mediaId: movie.id, serviceId: 0 },
+      });
+      assert.strictEqual(radarrRow.status, MediaStatus.AVAILABLE);
+    });
   });
 });

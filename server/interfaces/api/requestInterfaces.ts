@@ -21,6 +21,7 @@ export type MediaRequestBody = {
   seasons?: number[] | 'all';
   is4k?: boolean;
   serverId?: number;
+  isServiceRequest?: boolean;
   profileId?: number;
   profileName?: string;
   rootFolder?: string;

@@ -80,12 +80,19 @@ const RequestButton = ({
     mediaType === 'movie' ? '/api/v1/service/radarr' : '/api/v1/service/sonarr';
   const { data: allServices } = useSWR<ServiceCommonServer[]>(serviceEndpoint);
 
-  // All pending requests
+  // All pending requests occupying the Standard/4K slots (service-specific
+  // requests live in their own per-service slots and are handled below)
   const activeRequests = media?.requests.filter(
-    (request) => request.status === MediaRequestStatus.PENDING && !request.is4k
+    (request) =>
+      request.status === MediaRequestStatus.PENDING &&
+      !request.is4k &&
+      !request.isServiceRequest
   );
   const active4kRequests = media?.requests.filter(
-    (request) => request.status === MediaRequestStatus.PENDING && request.is4k
+    (request) =>
+      request.status === MediaRequestStatus.PENDING &&
+      request.is4k &&
+      !request.isServiceRequest
   );
 
   // Current user's pending request, or the first pending request
@@ -416,7 +423,9 @@ const RequestButton = ({
 
     const activeServiceRequests = media?.requests.filter(
       (r) =>
-        r.serverId === service.id && r.status === MediaRequestStatus.PENDING
+        r.isServiceRequest &&
+        r.serverId === service.id &&
+        r.status === MediaRequestStatus.PENDING
     );
     const userServiceRequest = activeServiceRequests?.find(
       (r) => r.requestedBy.id === user?.id
@@ -472,6 +481,23 @@ const RequestButton = ({
 
   const [buttonOne, ...others] = buttons;
 
+  // Pending request for the service targeted by the per-service modal:
+  // the user's own request if they have one, otherwise the first pending one
+  // (only reachable by users with MANAGE_REQUESTS).
+  const pendingServiceRequests =
+    activeServiceModal.serverId !== null
+      ? media?.requests.filter(
+          (request) =>
+            request.isServiceRequest &&
+            request.status === MediaRequestStatus.PENDING &&
+            request.serverId === activeServiceModal.serverId
+        )
+      : undefined;
+  const activeServiceRequest =
+    pendingServiceRequests?.find(
+      (request) => request.requestedBy.id === user?.id
+    ) ?? pendingServiceRequests?.[0];
+
   if (!buttonOne) {
     return null;
   }
@@ -507,6 +533,7 @@ const RequestButton = ({
           show={activeServiceModal.show}
           type={mediaType}
           serverId={activeServiceModal.serverId}
+          editRequest={editRequest ? activeServiceRequest : undefined}
           onComplete={() => {
             onUpdate();
             setActiveServiceModal({ serverId: null, show: false });

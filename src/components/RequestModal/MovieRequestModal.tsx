@@ -96,7 +96,7 @@ const MovieRequestModal = ({
         mediaId: data?.id,
         mediaType: 'movie',
         is4k,
-        ...(serverId != null ? { serverId } : {}),
+        ...(serverId != null ? { serverId, isServiceRequest: true } : {}),
         ...overrideParams,
       });
       mutate('/api/v1/request?filter=all&take=10&sort=modified&skip=0');

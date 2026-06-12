@@ -201,7 +201,7 @@ const TvRequestModal = ({
         tvdbId: tvdbId ?? data?.externalIds.tvdbId,
         mediaType: 'tv',
         is4k,
-        ...(serverId != null ? { serverId } : {}),
+        ...(serverId != null ? { serverId, isServiceRequest: true } : {}),
         seasons: settings.currentSettings.partialRequestsEnabled
           ? selectedSeasons.sort((a, b) => a - b)
           : getAllSeasons().filter(
