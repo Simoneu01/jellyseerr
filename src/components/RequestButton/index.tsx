@@ -37,6 +37,7 @@ const messages = defineMessages('components.RequestButton', {
   decline4krequests:
     'Decline {requestCount, plural, one {4K Request} other {{requestCount} 4K Requests}}',
   requestinservice: 'Request in {label}',
+  viewrequestinservice: 'View Request in {label}',
 });
 
 interface ButtonOption {
@@ -286,12 +287,15 @@ const RequestButton = ({
     }
   }
 
-  // When a (non-managing) user has been granted specific request services,
-  // the default request button is replaced entirely by their per-service
-  // buttons. With no service grants, the default button behaves as before.
+  // When a (non-managing) user has been granted specific request services
+  // for this media type, the default request button is replaced entirely by
+  // their per-service buttons. Grants for the other media type don't count —
+  // a user with only Radarr grants still gets the default button on TV pages.
+  const servicePrefix = mediaType === 'movie' ? 'radarr' : 'sonarr';
   const restrictToServices =
-    (user?.requestServices ?? []).length > 0 &&
-    !hasPermission(Permission.MANAGE_REQUESTS);
+    (user?.requestServices ?? []).some((service) =>
+      service.startsWith(`${servicePrefix}:`)
+    ) && !hasPermission(Permission.MANAGE_REQUESTS);
 
   // Standard request button
   if (
@@ -414,9 +418,7 @@ const RequestButton = ({
 
     // Per-service access control: a user only sees a service's request button
     // if they manage requests, or the service is in their allowed list.
-    const serviceIdentifier = `${
-      mediaType === 'movie' ? 'radarr' : 'sonarr'
-    }:${service.id}`;
+    const serviceIdentifier = `${servicePrefix}:${service.id}`;
     const canUseService =
       hasPermission(Permission.MANAGE_REQUESTS) ||
       (user?.requestServices ?? []).includes(serviceIdentifier);
