@@ -52,7 +52,11 @@ import {
 import { type RatingResponse } from '@server/api/ratings';
 import { ANIME_KEYWORD_ID } from '@server/api/themoviedb/constants';
 import { IssueStatus } from '@server/constants/issue';
-import { MediaStatus, MediaType } from '@server/constants/media';
+import {
+  MediaRequestStatus,
+  MediaStatus,
+  MediaType,
+} from '@server/constants/media';
 import { MediaServerType } from '@server/constants/server';
 import type { MovieDetails as MovieDetailsType } from '@server/models/Movie';
 import axios from 'axios';
@@ -507,15 +511,22 @@ const MovieDetails = ({ movie }: MovieDetailsProps) => {
         <div className="media-title">
           <div className="media-status">
             {/* Fall back to the legacy badges unless at least one service
-                status would actually render — rows can all be UNKNOWN (e.g.
-                removed from every service but still available on Plex). */}
+                status (or pending service request) would actually render —
+                rows can all be UNKNOWN (e.g. removed from every service but
+                still available on Plex). */}
             {data.mediaInfo?.serviceStatuses?.some(
               (ss) =>
                 ss.status !== MediaStatus.UNKNOWN &&
                 ss.status !== MediaStatus.DELETED
+            ) ||
+            data.mediaInfo?.requests?.some(
+              (request) =>
+                request.isServiceRequest &&
+                request.status === MediaRequestStatus.PENDING
             ) ? (
               <ServiceStatusBadges
                 serviceStatuses={data.mediaInfo.serviceStatuses}
+                requests={data.mediaInfo.requests}
                 mediaType="movie"
                 plexUrl={plexUrl}
                 tmdbId={data.mediaInfo.tmdbId}

@@ -1,6 +1,7 @@
 import StatusBadge, { getStatusLabel } from '@app/components/StatusBadge';
 import defineMessages from '@app/utils/defineMessages';
-import { MediaStatus } from '@server/constants/media';
+import { MediaRequestStatus, MediaStatus } from '@server/constants/media';
+import type { MediaRequest } from '@server/entity/MediaRequest';
 import type MediaServiceStatus from '@server/entity/MediaServiceStatus';
 import type { ServiceCommonServer } from '@server/interfaces/api/serviceInterfaces';
 import { useIntl } from 'react-intl';
@@ -12,6 +13,10 @@ const messages = defineMessages('components.StatusBadge.ServiceStatusBadges', {
 
 interface ServiceStatusBadgesProps {
   serviceStatuses?: MediaServiceStatus[];
+  // Pending service requests don't have a MediaServiceStatus row yet (one is
+  // only written after approval + send), so they're surfaced from the
+  // requests themselves as "Pending in {label}" badges.
+  requests?: MediaRequest[];
   mediaType: 'movie' | 'tv';
   plexUrl?: string;
   tmdbId?: number;
@@ -23,6 +28,7 @@ interface ServiceStatusBadgesProps {
 
 const ServiceStatusBadges = ({
   serviceStatuses,
+  requests,
   mediaType,
   plexUrl,
   tmdbId,
@@ -30,15 +36,22 @@ const ServiceStatusBadges = ({
   seasonNumber,
 }: ServiceStatusBadgesProps) => {
   const intl = useIntl();
+  const pendingServiceRequests = (requests ?? []).filter(
+    (request) =>
+      request.isServiceRequest &&
+      request.status === MediaRequestStatus.PENDING &&
+      seasonNumber === undefined
+  );
   const { data: services } = useSWR<ServiceCommonServer[]>(
-    serviceStatuses?.length
+    serviceStatuses?.length || pendingServiceRequests.length
       ? `/api/v1/service/${mediaType === 'movie' ? 'radarr' : 'sonarr'}`
       : null
   );
 
-  if (!services || !serviceStatuses?.length) return null;
+  if (!services || (!serviceStatuses?.length && !pendingServiceRequests.length))
+    return null;
 
-  const items = serviceStatuses
+  const items = (serviceStatuses ?? [])
     .map((ss) => {
       const server = services.find((s) => s.id === ss.serviceId);
       if (!server) return null;
@@ -61,6 +74,19 @@ const ServiceStatusBadges = ({
       return { server, status, downloadItem };
     })
     .filter((x): x is NonNullable<typeof x> => x !== null);
+
+  // Add a Pending badge for each service with a pending request that has no
+  // visible status of its own yet.
+  for (const request of pendingServiceRequests) {
+    if (items.some(({ server }) => server.id === request.serverId)) {
+      continue;
+    }
+    const server = services.find((s) => s.id === request.serverId);
+    if (!server) {
+      continue;
+    }
+    items.push({ server, status: MediaStatus.PENDING, downloadItem: [] });
+  }
 
   if (!items.length) return null;
 

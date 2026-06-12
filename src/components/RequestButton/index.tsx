@@ -38,6 +38,8 @@ const messages = defineMessages('components.RequestButton', {
     'Decline {requestCount, plural, one {4K Request} other {{requestCount} 4K Requests}}',
   requestinservice: 'Request in {label}',
   viewrequestinservice: 'View Request in {label}',
+  approverequestinservice: 'Approve Request in {label}',
+  declinerequestinservice: 'Decline Request in {label}',
 });
 
 interface ButtonOption {
@@ -456,6 +458,37 @@ const RequestButton = ({
         },
         svg: <InformationCircleIcon />,
       });
+
+      // Managers get inline approve/decline for this service's pending
+      // requests, mirroring the standard request button's dropdown entries.
+      if (
+        activeServiceRequests &&
+        activeServiceRequests.length > 0 &&
+        hasPermission(Permission.MANAGE_REQUESTS)
+      ) {
+        buttons.push(
+          {
+            id: `approve-service-${service.id}`,
+            text: intl.formatMessage(messages.approverequestinservice, {
+              label: service.buttonLabel,
+            }),
+            action: () => {
+              modifyRequests(activeServiceRequests, 'approve');
+            },
+            svg: <CheckIcon />,
+          },
+          {
+            id: `decline-service-${service.id}`,
+            text: intl.formatMessage(messages.declinerequestinservice, {
+              label: service.buttonLabel,
+            }),
+            action: () => {
+              modifyRequests(activeServiceRequests, 'decline');
+            },
+            svg: <XMarkIcon />,
+          }
+        );
+      }
     } else if (
       hasPermission(
         [

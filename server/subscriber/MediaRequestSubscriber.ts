@@ -44,6 +44,22 @@ const sanitizeDisplayName = (displayName: string): string => {
 
 @EventSubscriber()
 export class MediaRequestSubscriber implements EntitySubscriberInterface<MediaRequest> {
+  /**
+   * Resolves the display label of the service targeted by a service-specific
+   * request (the request button label when set, otherwise the server name).
+   * Returns undefined for regular requests so notification text is unchanged.
+   */
+  private getServiceLabel(entity: MediaRequest): string | undefined {
+    if (!entity.isServiceRequest || entity.serverId == null) {
+      return undefined;
+    }
+    const settings = getSettings();
+    const servers =
+      entity.type === MediaType.MOVIE ? settings.radarr : settings.sonarr;
+    const server = servers.find((s) => s.id === entity.serverId);
+    return server?.buttonLabel ?? server?.name;
+  }
+
   private async notifyAvailableMovie(
     entity: MediaRequest,
     event?: UpdateEvent<MediaRequest>
@@ -75,6 +91,7 @@ export class MediaRequestSubscriber implements EntitySubscriberInterface<MediaRe
     }
 
     const tmdb = new TheMovieDb();
+    const serviceLabel = this.getServiceLabel(entity);
 
     try {
       const movie = await tmdb.getMovie({
@@ -82,7 +99,9 @@ export class MediaRequestSubscriber implements EntitySubscriberInterface<MediaRe
       });
 
       notificationManager.sendNotification(Notification.MEDIA_AVAILABLE, {
-        event: `${entity.is4k ? '4K ' : ''}Movie Request Now Available`,
+        event: `${entity.is4k ? '4K ' : ''}Movie Request Now Available${
+          serviceLabel ? ` in ${serviceLabel}` : ''
+        }`,
         notifyAdmin: false,
         notifySystem: true,
         notifyUser: entity.requestedBy,
@@ -151,12 +170,15 @@ export class MediaRequestSubscriber implements EntitySubscriberInterface<MediaRe
     }
 
     const tmdb = new TheMovieDb();
+    const serviceLabel = this.getServiceLabel(entity);
 
     try {
       const tv = await tmdb.getTvShow({ tvId: entity.media.tmdbId });
 
       notificationManager.sendNotification(Notification.MEDIA_AVAILABLE, {
-        event: `${entity.is4k ? '4K ' : ''}Series Request Now Available`,
+        event: `${entity.is4k ? '4K ' : ''}Series Request Now Available${
+          serviceLabel ? ` in ${serviceLabel}` : ''
+        }`,
         subject: `${tv.name}${
           tv.first_air_date ? ` (${tv.first_air_date.slice(0, 4)})` : ''
         }`,

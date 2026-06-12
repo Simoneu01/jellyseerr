@@ -548,15 +548,22 @@ const TvDetails = ({ tv }: TvDetailsProps) => {
         <div className="media-title">
           <div className="media-status">
             {/* Fall back to the legacy badges unless at least one service
-                status would actually render — rows can all be UNKNOWN (e.g.
-                removed from every service but still available on Plex). */}
+                status (or pending service request) would actually render —
+                rows can all be UNKNOWN (e.g. removed from every service but
+                still available on Plex). */}
             {data.mediaInfo?.serviceStatuses?.some(
               (ss) =>
                 ss.status !== MediaStatus.UNKNOWN &&
                 ss.status !== MediaStatus.DELETED
+            ) ||
+            data.mediaInfo?.requests?.some(
+              (request) =>
+                request.isServiceRequest &&
+                request.status === MediaRequestStatus.PENDING
             ) ? (
               <ServiceStatusBadges
                 serviceStatuses={data.mediaInfo.serviceStatuses}
+                requests={data.mediaInfo.requests}
                 mediaType="tv"
                 plexUrl={plexUrl}
                 tmdbId={data.mediaInfo.tmdbId}
