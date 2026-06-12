@@ -447,7 +447,7 @@ const RequestButton = ({
     ) {
       buttons.push({
         id: `view-service-${service.id}`,
-        text: intl.formatMessage(messages.requestinservice, {
+        text: intl.formatMessage(messages.viewrequestinservice, {
           label: service.buttonLabel,
         }),
         action: () => {

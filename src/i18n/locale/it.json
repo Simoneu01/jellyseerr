@@ -264,6 +264,7 @@
   "components.RequestButton.declinerequest4k": "Rifiuta la richiesta 4K",
   "components.RequestButton.declinerequest": "Rifiuta la richiesta",
   "components.RequestButton.requestinservice": "Richiedi in {label}",
+  "components.RequestButton.viewrequestinservice": "Visualizza la richiesta in {label}",
   "components.RequestButton.decline4krequests": "Rifiuta {requestCount, plural, one {Richiesta 4K} other {{requestCount} Richieste 4K}}",
   "components.RequestButton.approverequests": "Approva {requestCount, plural, one {Richiesta} other {{requestCount} Richieste}}",
   "components.RequestButton.approverequest4k": "Approva richiesta 4K",
