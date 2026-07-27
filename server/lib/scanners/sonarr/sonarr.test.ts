@@ -12,16 +12,15 @@ import {
 } from '@server/constants/media';
 import { getRepository } from '@server/datasource';
 import Media from '@server/entity/Media';
-import { MediaRequest } from '@server/entity/MediaRequest';
-import MediaServiceStatus from '@server/entity/MediaServiceStatus';
+import MediaRequest from '@server/entity/MediaRequest';
 import Season from '@server/entity/Season';
-import SeasonRequest from '@server/entity/SeasonRequest';
 import { User } from '@server/entity/User';
+import { sonarrScanner } from '@server/lib/scanners/sonarr';
 import type { SonarrSettings } from '@server/lib/settings';
 import { getSettings } from '@server/lib/settings';
 import { setupTestDb } from '@server/test/db';
 import assert from 'node:assert/strict';
-import { beforeEach, describe, it } from 'node:test';
+import { beforeEach, describe, it, mock } from 'node:test';
 
 let getSeriesImpl: () => Promise<SonarrSeries[]> = async () => [];
 Object.defineProperty(SonarrAPI.prototype, 'getSeries', {
@@ -104,7 +103,7 @@ Object.defineProperty(TheMovieDb.prototype, 'getTvShow', {
   configurable: true,
 });
 
-import { sonarrScanner } from '@server/lib/scanners/sonarr';
+mock.method(MediaRequest, 'sendNotification', async () => undefined);
 
 setupTestDb();
 
@@ -222,7 +221,7 @@ describe('Sonarr Scanner', () => {
       await mediaRepository.save(media);
 
       configureSonarr([{ syncEnabled: true }]);
-      getSeriesImpl = async () => [];
+      getSeriesImpl = async () => [fakeSonarrSeries({ tvdbId: 999 })];
 
       await sonarrScanner.run();
 
@@ -336,7 +335,7 @@ describe('Sonarr Scanner', () => {
       await mediaRepository.save(media);
 
       configureSonarr([{ syncEnabled: true }]);
-      getSeriesImpl = async () => [];
+      getSeriesImpl = async () => [fakeSonarrSeries({ tvdbId: 999 })];
 
       await sonarrScanner.run();
 
@@ -408,14 +407,7 @@ describe('Sonarr Scanner', () => {
         { syncEnabled: true, id: 1, hostname: 'server-b' },
       ]);
 
-      let callCount = 0;
-      getSeriesImpl = async () => {
-        callCount++;
-        if (callCount === 2) {
-          return [fakeSonarrSeries({ tvdbId: 511 })];
-        }
-        return [];
-      };
+      getSeriesImpl = async () => [fakeSonarrSeries({ tvdbId: 511 })];
 
       getShowByTvdbIdImpl = async () => fakeTmdbShow(2);
       getTvShowImpl = async () => fakeTmdbShow(2);
@@ -446,7 +438,7 @@ describe('Sonarr Scanner', () => {
       await mediaRepository.save(media);
 
       configureSonarr([{ syncEnabled: true }]);
-      getSeriesImpl = async () => [];
+      getSeriesImpl = async () => [fakeSonarrSeries({ tvdbId: 999 })];
 
       await sonarrScanner.run();
 
@@ -477,7 +469,7 @@ describe('Sonarr Scanner', () => {
       await mediaRepository.save(media);
 
       configureSonarr([{ syncEnabled: true, is4k: true }]);
-      getSeriesImpl = async () => [];
+      getSeriesImpl = async () => [fakeSonarrSeries({ tvdbId: 999 })];
 
       await sonarrScanner.run();
 
@@ -513,7 +505,7 @@ describe('Sonarr Scanner', () => {
       await mediaRepository.save(media);
 
       configureSonarr([{ syncEnabled: true, is4k: true }]);
-      getSeriesImpl = async () => [];
+      getSeriesImpl = async () => [fakeSonarrSeries({ tvdbId: 999 })];
 
       await sonarrScanner.run();
 
@@ -528,137 +520,165 @@ describe('Sonarr Scanner', () => {
     });
   });
 
-  describe('per-service status tracking', () => {
-    async function seedShow(): Promise<Media> {
+  describe('orphaned request handling', () => {
+    it('declines the approved request and resets the show to UNKNOWN when orphaned', async () => {
       const mediaRepository = getRepository(Media);
-      const media = new Media();
-      media.tmdbId = 1;
-      media.tvdbId = 200;
-      media.mediaType = MediaType.TV;
-      media.status = MediaStatus.PROCESSING;
-      media.seasons = [
-        new Season({
-          seasonNumber: 1,
-          status: MediaStatus.PROCESSING,
-          status4k: MediaStatus.UNKNOWN,
-        }),
-      ];
-      return mediaRepository.save(media);
-    }
-
-    function configureAvailableSeries(): void {
-      configureSonarr([{ syncEnabled: true }]);
-      getSeriesImpl = async () => [fakeSonarrSeries({ tvdbId: 200 })];
-      getShowByTvdbIdImpl = async () => fakeTmdbShow(1);
-      getTvShowImpl = async () => fakeTmdbShow(1);
-    }
-
-    it('records per-service availability for a scanned show', async () => {
-      const media = await seedShow();
-      configureAvailableSeries();
-
-      await sonarrScanner.run();
-
-      const serviceStatus = await getRepository(MediaServiceStatus).findOne({
-        where: { mediaId: media.id, serviceId: 0 },
-      });
-      assert.ok(
-        serviceStatus,
-        'expected a MediaServiceStatus row to be created'
-      );
-      assert.strictEqual(serviceStatus.serviceType, 'sonarr');
-      assert.strictEqual(serviceStatus.status, MediaStatus.AVAILABLE);
-
-      // A re-scan must UPDATE the existing row via the (mediaId, serviceId)
-      // conflict rather than fail. (Deterministic reproduction of the
-      // last_insert_rowid edge case lives in mediaServiceStatus.test.ts.)
-      await sonarrScanner.run();
-      const reScanned = await getRepository(MediaServiceStatus).findOne({
-        where: { mediaId: media.id, serviceId: 0 },
-      });
-      assert.strictEqual(reScanned?.status, MediaStatus.AVAILABLE);
-    });
-
-    it('completes an approved service request once the service has all requested seasons', async () => {
-      const media = await seedShow();
       const requestRepository = getRepository(MediaRequest);
-      const admin = await getRepository(User).findOneOrFail({
-        where: { email: 'admin@seerr.dev' },
+      const userRepository = getRepository(User);
+
+      const requestedBy = await userRepository.findOneOrFail({
+        where: { id: 1 },
       });
 
-      configureAvailableSeries();
-
-      // Saving the APPROVED request fires the subscriber's sendToSonarr, so
-      // the add call must be stubbed to behave like a successful send.
-      const originalAddSeries = SonarrAPI.prototype.addSeries;
-      SonarrAPI.prototype.addSeries = async () =>
-        fakeSonarrSeries({ tvdbId: 200 });
-
-      try {
-        const request = await requestRepository.save(
-          new MediaRequest({
-            type: MediaType.TV,
-            status: MediaRequestStatus.APPROVED,
-            media,
-            requestedBy: admin,
-            is4k: false,
-            serverId: 0,
-            isServiceRequest: true,
-            seasons: [
-              new SeasonRequest({
-                seasonNumber: 1,
-                status: MediaRequestStatus.APPROVED,
-              }),
-            ],
-          })
-        );
-
-        await sonarrScanner.run();
-
-        const completed = await requestRepository.findOneOrFail({
-          where: { id: request.id },
-        });
-        assert.strictEqual(completed.status, MediaRequestStatus.COMPLETED);
-
-        // The standard media status slots must remain untouched by the
-        // service request's lifecycle.
-        const untouchedMedia = await getRepository(Media).findOneOrFail({
-          where: { id: media.id },
-        });
-        assert.notStrictEqual(untouchedMedia.status, MediaStatus.PROCESSING);
-      } finally {
-        SonarrAPI.prototype.addSeries = originalAddSeries;
-      }
-    });
-
-    it('resets only its own stale rows when the server returns no series', async () => {
-      const mediaRepository = getRepository(Media);
-      const serviceStatusRepository = getRepository(MediaServiceStatus);
-
-      const show = await seedShow();
-      await serviceStatusRepository.save(
-        new MediaServiceStatus({
-          mediaId: show.id,
-          serviceId: 0,
-          serviceType: 'sonarr',
-          status: MediaStatus.AVAILABLE,
-          seasonStatuses: { 1: MediaStatus.AVAILABLE },
+      const media = await mediaRepository.save(
+        new Media({
+          tmdbId: 2000,
+          tvdbId: 555,
+          mediaType: MediaType.TV,
+          status: MediaStatus.PROCESSING,
+          seasons: [
+            new Season({
+              seasonNumber: 1,
+              status: MediaStatus.PROCESSING,
+              status4k: MediaStatus.UNKNOWN,
+            }),
+          ],
         })
       );
 
-      // Radarr server with the same numeric id (the two are independent
-      // sequences) — its row must survive the Sonarr reset.
-      const movie = new Media();
-      movie.tmdbId = 2;
-      movie.mediaType = MediaType.MOVIE;
-      movie.status = MediaStatus.AVAILABLE;
-      await mediaRepository.save(movie);
-      await serviceStatusRepository.save(
-        new MediaServiceStatus({
-          mediaId: movie.id,
-          serviceId: 0,
-          serviceType: 'radarr',
-          status: MediaStatus.AVAILABLE,
+      const settings = getSettings();
+      settings.sonarr = [];
+      settings.radarr = [];
+      const request = await requestRepository.save(
+        new MediaRequest({
+          type: MediaType.TV,
+          status: MediaRequestStatus.APPROVED,
+          media,
+          requestedBy,
+          is4k: false,
+        })
+      );
+
+      configureSonarr([{ syncEnabled: true }]);
+      getSeriesImpl = async () => [fakeSonarrSeries({ tvdbId: 999 })];
+
+      await sonarrScanner.run();
+
+      const updatedMedia = await mediaRepository.findOneOrFail({
+        where: { tmdbId: 2000 },
+      });
+      const updatedRequest = await requestRepository.findOneOrFail({
+        where: { id: request.id },
+      });
+
+      assert.strictEqual(updatedMedia.status, MediaStatus.UNKNOWN);
+      assert.strictEqual(updatedRequest.status, MediaRequestStatus.DECLINED);
+    });
+
+    it('does not decline the request when the show still exists in Sonarr', async () => {
+      const mediaRepository = getRepository(Media);
+      const requestRepository = getRepository(MediaRequest);
+      const userRepository = getRepository(User);
+
+      const requestedBy = await userRepository.findOneOrFail({
+        where: { id: 1 },
+      });
+
+      const media = await mediaRepository.save(
+        new Media({
+          tmdbId: 2001,
+          tvdbId: 600,
+          mediaType: MediaType.TV,
+          status: MediaStatus.PROCESSING,
+          seasons: [
+            new Season({
+              seasonNumber: 1,
+              status: MediaStatus.PROCESSING,
+              status4k: MediaStatus.UNKNOWN,
+            }),
+          ],
+        })
+      );
+
+      const settings = getSettings();
+      settings.sonarr = [];
+      settings.radarr = [];
+      const request = await requestRepository.save(
+        new MediaRequest({
+          type: MediaType.TV,
+          status: MediaRequestStatus.APPROVED,
+          media,
+          requestedBy,
+          is4k: false,
+        })
+      );
+
+      configureSonarr([{ syncEnabled: true }]);
+      getSeriesImpl = async () => [
+        fakeSonarrSeries({
+          tvdbId: 600,
+          seasons: [
+            {
+              seasonNumber: 1,
+              monitored: true,
+              statistics: {
+                episodeFileCount: 0,
+                totalEpisodeCount: 10,
+                episodeCount: 10,
+                percentOfEpisodes: 0,
+                sizeOnDisk: 0,
+                previousAiring: undefined,
+              },
+            },
+          ],
+        }),
+      ];
+      getShowByTvdbIdImpl = async () => fakeTmdbShow(2001);
+      getTvShowImpl = async () => fakeTmdbShow(2001);
+
+      await sonarrScanner.run();
+
+      const updatedRequest = await requestRepository.findOneOrFail({
+        where: { id: request.id },
+      });
+      assert.strictEqual(updatedRequest.status, MediaRequestStatus.APPROVED);
+    });
+
+    it('skips cleanup and leaves the request approved when Sonarr returns an empty list', async () => {
+      const mediaRepository = getRepository(Media);
+      const requestRepository = getRepository(MediaRequest);
+      const userRepository = getRepository(User);
+
+      const requestedBy = await userRepository.findOneOrFail({
+        where: { id: 1 },
+      });
+
+      const media = await mediaRepository.save(
+        new Media({
+          tmdbId: 2005,
+          tvdbId: 605,
+          mediaType: MediaType.TV,
+          status: MediaStatus.PROCESSING,
+          seasons: [
+            new Season({
+              seasonNumber: 1,
+              status: MediaStatus.PROCESSING,
+              status4k: MediaStatus.UNKNOWN,
+            }),
+          ],
+        })
+      );
+
+      const settings = getSettings();
+      settings.sonarr = [];
+      settings.radarr = [];
+      const request = await requestRepository.save(
+        new MediaRequest({
+          type: MediaType.TV,
+          status: MediaRequestStatus.APPROVED,
+          media,
+          requestedBy,
+          is4k: false,
         })
       );
 
@@ -667,16 +687,139 @@ describe('Sonarr Scanner', () => {
 
       await sonarrScanner.run();
 
-      const sonarrRow = await serviceStatusRepository.findOneOrFail({
-        where: { mediaId: show.id, serviceId: 0 },
+      const updatedMedia = await mediaRepository.findOneOrFail({
+        where: { tmdbId: 2005 },
       });
-      assert.strictEqual(sonarrRow.status, MediaStatus.UNKNOWN);
-      assert.strictEqual(sonarrRow.seasonStatuses, null);
+      const updatedRequest = await requestRepository.findOneOrFail({
+        where: { id: request.id },
+      });
 
-      const radarrRow = await serviceStatusRepository.findOneOrFail({
-        where: { mediaId: movie.id, serviceId: 0 },
+      assert.strictEqual(updatedMedia.status, MediaStatus.PROCESSING);
+      assert.strictEqual(updatedRequest.status, MediaRequestStatus.APPROVED);
+    });
+
+    it('declineOrphanedRequests throws when the requests relation is not loaded', async () => {
+      const media = new Media();
+      media.id = 1;
+      media.tmdbId = 123;
+      media.mediaType = MediaType.TV;
+
+      await assert.rejects(
+        () =>
+          (
+            sonarrScanner as unknown as {
+              declineOrphanedRequests: (
+                m: Media,
+                is4k: boolean
+              ) => Promise<void>;
+            }
+          ).declineOrphanedRequests(media, false),
+        /without the 'requests' relation loaded/
+      );
+    });
+
+    it('declines only the 4k request when the 4k dimension is orphaned but standard still exists', async () => {
+      const mediaRepository = getRepository(Media);
+      const requestRepository = getRepository(MediaRequest);
+      const userRepository = getRepository(User);
+
+      const requestedBy = await userRepository.findOneOrFail({
+        where: { id: 1 },
       });
-      assert.strictEqual(radarrRow.status, MediaStatus.AVAILABLE);
+
+      const media = await mediaRepository.save(
+        new Media({
+          tmdbId: 2002,
+          tvdbId: 666,
+          mediaType: MediaType.TV,
+          status: MediaStatus.PROCESSING,
+          status4k: MediaStatus.PROCESSING,
+          seasons: [
+            new Season({
+              seasonNumber: 1,
+              status: MediaStatus.PROCESSING,
+              status4k: MediaStatus.PROCESSING,
+            }),
+          ],
+        })
+      );
+
+      const settings = getSettings();
+      settings.sonarr = [];
+      settings.radarr = [];
+      const standardRequest = await requestRepository.save(
+        new MediaRequest({
+          type: MediaType.TV,
+          status: MediaRequestStatus.APPROVED,
+          media,
+          requestedBy,
+          is4k: false,
+        })
+      );
+      const fourKRequest = await requestRepository.save(
+        new MediaRequest({
+          type: MediaType.TV,
+          status: MediaRequestStatus.APPROVED,
+          media,
+          requestedBy,
+          is4k: true,
+        })
+      );
+
+      configureSonarr([
+        { syncEnabled: true, id: 0, hostname: 'server-standard' },
+        { syncEnabled: true, id: 1, hostname: 'server-4k', is4k: true },
+      ]);
+
+      let callCount = 0;
+      getSeriesImpl = async () => {
+        callCount++;
+        if (callCount === 1) {
+          // standard server still has the show (processing, no files)
+          return [
+            fakeSonarrSeries({
+              tvdbId: 666,
+              seasons: [
+                {
+                  seasonNumber: 1,
+                  monitored: true,
+                  statistics: {
+                    episodeFileCount: 0,
+                    totalEpisodeCount: 10,
+                    episodeCount: 10,
+                    percentOfEpisodes: 0,
+                    sizeOnDisk: 0,
+                    previousAiring: undefined,
+                  },
+                },
+              ],
+            }),
+          ];
+        }
+        // 4k server: populated but the show is absent, so 4k dimension orphaned
+        return [fakeSonarrSeries({ tvdbId: 997 })];
+      };
+
+      getShowByTvdbIdImpl = async ({ tvdbId }) =>
+        tvdbId === 666 ? fakeTmdbShow(2002) : fakeTmdbShow(997);
+      getTvShowImpl = async ({ tvId }) => fakeTmdbShow(tvId);
+
+      await sonarrScanner.run();
+
+      const updatedMedia = await mediaRepository.findOneOrFail({
+        where: { tmdbId: 2002 },
+      });
+      const updatedStandard = await requestRepository.findOneOrFail({
+        where: { id: standardRequest.id },
+      });
+      const updated4k = await requestRepository.findOneOrFail({
+        where: { id: fourKRequest.id },
+      });
+
+      assert.strictEqual(updatedMedia.status, MediaStatus.PROCESSING);
+      assert.strictEqual(updatedMedia.status4k, MediaStatus.UNKNOWN);
+      assert.strictEqual(updatedStandard.status, MediaRequestStatus.APPROVED);
+      assert.strictEqual(updated4k.status, MediaRequestStatus.DECLINED);
     });
   });
 });

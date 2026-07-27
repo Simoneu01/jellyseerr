@@ -37,6 +37,8 @@ class SonarrScanner
   private currentServerTmdbIds: Set<number> = new Set();
   private didScanStandard = false;
   private didScan4k = false;
+  private serverReturnedEmpty = false;
+  private server4kReturnedEmpty = false;
 
   constructor() {
     super('Sonarr Scan', { bundleSize: 50 });
@@ -59,6 +61,8 @@ class SonarrScanner
     this.scanned4kTvdbIds.clear();
     this.didScanStandard = false;
     this.didScan4k = false;
+    this.serverReturnedEmpty = false;
+    this.server4kReturnedEmpty = false;
 
     try {
       this.servers = uniqWith(settings.sonarr, (sonarrA, sonarrB) => {
@@ -92,6 +96,18 @@ class SonarrScanner
             this.didScanStandard = true;
           }
 
+          if (this.items.length === 0) {
+            if (server4k) {
+              this.server4kReturnedEmpty = true;
+            } else {
+              this.serverReturnedEmpty = true;
+            }
+            this.log(
+              `Sonarr server ${server.name} returned no series. Orphan cleanup for this profile type will be skipped.`,
+              'warn'
+            );
+          }
+
           await this.loop(this.processSonarrSeries.bind(this), { sessionId });
           await this.resetStaleServiceStatus({
             serviceId: server.id,
@@ -121,6 +137,13 @@ class SonarrScanner
         this.didScanStandard = false;
       }
       if (!all4kScanned) {
+        this.didScan4k = false;
+      }
+
+      if (this.serverReturnedEmpty) {
+        this.didScanStandard = false;
+      }
+      if (this.server4kReturnedEmpty) {
         this.didScan4k = false;
       }
 
@@ -230,7 +253,7 @@ class SonarrScanner
     if (this.didScanStandard) {
       const processingShows = await mediaRepository.find({
         where: { mediaType: MediaType.TV, status: MediaStatus.PROCESSING },
-        relations: ['seasons'],
+        relations: { seasons: true, requests: true },
       });
 
       for (const media of processingShows) {
@@ -242,6 +265,7 @@ class SonarrScanner
             }
           }
           await mediaRepository.save(media);
+          await this.declineOrphanedRequests(media, false);
           this.log(
             `Show ${media.tmdbId} (tvdb: ${media.tvdbId}) not found in any Sonarr server. Status reset to UNKNOWN.`,
             'info'
@@ -258,7 +282,7 @@ class SonarrScanner
     if (this.didScan4k) {
       const processing4kShows = await mediaRepository.find({
         where: { mediaType: MediaType.TV, status4k: MediaStatus.PROCESSING },
-        relations: ['seasons'],
+        relations: { seasons: true, requests: true },
       });
 
       for (const media of processing4kShows) {
@@ -270,6 +294,7 @@ class SonarrScanner
             }
           }
           await mediaRepository.save(media);
+          await this.declineOrphanedRequests(media, true);
           this.log(
             `Show ${media.tmdbId} (tvdb: ${media.tvdbId}) not found in any 4K Sonarr server. 4K status reset to UNKNOWN.`,
             'info'
