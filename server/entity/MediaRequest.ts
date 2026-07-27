@@ -29,6 +29,7 @@ import {
   UpdateDateColumn,
 } from 'typeorm';
 import Media from './Media';
+import MediaServiceStatus from './MediaServiceStatus';
 import SeasonRequest from './SeasonRequest';
 import { User } from './User';
 
@@ -152,12 +153,52 @@ export class MediaRequest {
       relations: ['requests'],
     });
 
+    // A request explicitly targeting a specific service (per-service request
+    // button) does not affect the Standard/4K media status slots — those remain
+    // meaningful only for the default servers. The explicit flag distinguishes
+    // these from advanced requests, which also carry a serverId but still
+    // occupy the regular Standard/4K slot.
+    const isServiceSpecific =
+      !!requestBody.isServiceRequest &&
+      requestBody.serverId !== undefined &&
+      requestBody.serverId !== null &&
+      requestBody.serverId >= 0;
+
+    if (requestBody.isServiceRequest && !isServiceSpecific) {
+      throw new Error(
+        'Service-specific requests must target a valid serverId.'
+      );
+    }
+
+    // Per-service requests are gated by the user's service grants
+    // (User.requestServices) unless they can manage requests. This mirrors
+    // the client-side filtering in RequestButton, which only hides buttons.
+    if (
+      isServiceSpecific &&
+      !user.hasPermission(Permission.MANAGE_REQUESTS) &&
+      !(user.requestServices ?? []).includes(
+        `${requestBody.mediaType === MediaType.MOVIE ? 'radarr' : 'sonarr'}:${
+          requestBody.serverId
+        }`
+      )
+    ) {
+      throw new RequestPermissionError(
+        'You do not have permission to request in this service.'
+      );
+    }
+
     if (!media) {
       media = new Media({
         tmdbId: tmdbMedia.id,
         tvdbId: requestBody.tvdbId ?? tmdbMedia.external_ids.tvdb_id,
-        status: !requestBody.is4k ? MediaStatus.PENDING : MediaStatus.UNKNOWN,
-        status4k: requestBody.is4k ? MediaStatus.PENDING : MediaStatus.UNKNOWN,
+        status:
+          !requestBody.is4k && !isServiceSpecific
+            ? MediaStatus.PENDING
+            : MediaStatus.UNKNOWN,
+        status4k:
+          requestBody.is4k && !isServiceSpecific
+            ? MediaStatus.PENDING
+            : MediaStatus.UNKNOWN,
         mediaType: requestBody.mediaType,
       });
     } else {
@@ -172,6 +213,7 @@ export class MediaRequest {
       }
 
       if (
+        !isServiceSpecific &&
         (media.status === MediaStatus.UNKNOWN ||
           media.status === MediaStatus.DELETED) &&
         !requestBody.is4k
@@ -180,6 +222,7 @@ export class MediaRequest {
       }
 
       if (
+        !isServiceSpecific &&
         (media.status4k === MediaStatus.UNKNOWN ||
           media.status4k === MediaStatus.DELETED) &&
         requestBody.is4k
@@ -188,16 +231,39 @@ export class MediaRequest {
       }
     }
 
-    const existing = await requestRepository
+    // Duplicate detection:
+    // - A service-specific request occupies its own per-service slot: one
+    //   request per (service, media) is allowed.
+    // - All other requests (including advanced requests that pin a server)
+    //   occupy the regular slot: one request per is4k slot is allowed.
+    const existingQuery = requestRepository
       .createQueryBuilder('request')
-      .leftJoinAndSelect('request.media', 'media')
+      .leftJoin('request.media', 'media')
       .leftJoinAndSelect('request.requestedBy', 'user')
-      .where('request.is4k = :is4k', { is4k: requestBody.is4k })
-      .andWhere('media.tmdbId = :tmdbId', { tmdbId: tmdbMedia.id })
+      .where('media.tmdbId = :tmdbId', { tmdbId: tmdbMedia.id })
       .andWhere('media.mediaType = :mediaType', {
         mediaType: requestBody.mediaType,
-      })
-      .getMany();
+      });
+
+    if (isServiceSpecific) {
+      existingQuery
+        .andWhere('request.isServiceRequest = :isServiceRequest', {
+          isServiceRequest: true,
+        })
+        .andWhere('request.serverId = :serverId', {
+          serverId: requestBody.serverId,
+        });
+    } else {
+      existingQuery
+        .andWhere('request.isServiceRequest = :isServiceRequest', {
+          isServiceRequest: false,
+        })
+        .andWhere('request.is4k = :is4k', {
+          is4k: requestBody.is4k ?? false,
+        });
+    }
+
+    const existing = await existingQuery.getMany();
 
     if (existing && existing.length > 0) {
       // If there is an existing movie request that isn't declined, don't allow a new one.
@@ -243,6 +309,7 @@ export class MediaRequest {
     let rootFolder = requestBody.rootFolder;
     let profileId = requestBody.profileId;
     let tags = requestBody.tags;
+    const serverId = requestBody.serverId;
 
     if (useOverrides) {
       const defaultRadarrId = requestBody.is4k
@@ -400,7 +467,8 @@ export class MediaRequest {
           ? user
           : undefined,
         is4k: requestBody.is4k,
-        serverId: requestBody.serverId,
+        serverId: serverId,
+        isServiceRequest: isServiceSpecific,
         profileId: profileId,
         rootFolder: rootFolder,
         tags: tags,
@@ -431,12 +499,19 @@ export class MediaRequest {
       // (Unless there are no seasons, in which case we abort)
       if (media.requests) {
         existingSeasons = media.requests
-          .filter(
-            (request) =>
-              request.is4k === requestBody.is4k &&
+          .filter((request) => {
+            // Service-specific requests deduplicate within their own
+            // per-service slot; everything else within the is4k slot.
+            const sameSlot = isServiceSpecific
+              ? request.isServiceRequest &&
+                request.serverId === requestBody.serverId
+              : !request.isServiceRequest && request.is4k === requestBody.is4k;
+            return (
+              sameSlot &&
               request.status !== MediaRequestStatus.DECLINED &&
               request.status !== MediaRequestStatus.COMPLETED
-          )
+            );
+          })
           .reduce((seasons, request) => {
             const combinedSeasons = request.seasons.map(
               (season) => season.seasonNumber
@@ -446,8 +521,29 @@ export class MediaRequest {
           }, [] as number[]);
       }
 
-      // We should also check seasons that are available/partially available but don't have existing requests
-      if (media.seasons) {
+      // We should also check seasons that are available/partially available
+      // but don't have existing requests. For a service-specific request the
+      // relevant availability is the targeted service's own season statuses —
+      // a season available elsewhere must still be requestable here.
+      if (isServiceSpecific) {
+        if (media.id) {
+          const serviceStatus = await getRepository(MediaServiceStatus).findOne(
+            {
+              where: { mediaId: media.id, serviceId: requestBody.serverId },
+            }
+          );
+          existingSeasons = [
+            ...existingSeasons,
+            ...Object.entries(serviceStatus?.seasonStatuses ?? {})
+              .filter(
+                ([, status]) =>
+                  status !== MediaStatus.UNKNOWN &&
+                  status !== MediaStatus.DELETED
+              )
+              .map(([seasonNumber]) => Number(seasonNumber)),
+          ];
+        }
+      } else if (media.seasons) {
         existingSeasons = [
           ...existingSeasons,
           ...media.seasons
@@ -512,7 +608,8 @@ export class MediaRequest {
           ? user
           : undefined,
         is4k: requestBody.is4k,
-        serverId: requestBody.serverId,
+        serverId: serverId,
+        isServiceRequest: isServiceSpecific,
         profileId: profileId,
         rootFolder: rootFolder,
         languageProfileId: requestBody.languageProfileId,
@@ -601,6 +698,15 @@ export class MediaRequest {
 
   @Column({ nullable: true })
   public serverId: number;
+
+  /**
+   * True when this request explicitly targets a specific service via a
+   * per-service request button (occupying that service's slot rather than the
+   * Standard/4K slot). Advanced requests that merely pin a destination server
+   * keep this false.
+   */
+  @Column({ default: false })
+  public isServiceRequest: boolean;
 
   @Column({ nullable: true })
   public profileId: number;

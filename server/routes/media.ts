@@ -5,6 +5,8 @@ import TheMovieDb from '@server/api/themoviedb';
 import { MediaStatus, MediaType } from '@server/constants/media';
 import { getRepository } from '@server/datasource';
 import Media from '@server/entity/Media';
+import { MediaRequest } from '@server/entity/MediaRequest';
+import MediaServiceStatus from '@server/entity/MediaServiceStatus';
 import Season from '@server/entity/Season';
 import { User } from '@server/entity/User';
 import type {
@@ -213,32 +215,44 @@ mediaRoutes.delete(
 
       const is4k = String(req.query.is4k) === 'true';
       const isMovie = media.mediaType === MediaType.MOVIE;
+      // Optional explicit serviceId (for per-service delete from a specific instance)
+      const explicitServiceId = req.query.serviceId
+        ? Number(req.query.serviceId)
+        : undefined;
 
       let serviceSettings;
-      if (isMovie) {
-        serviceSettings = settings.radarr.find(
-          (radarr) => radarr.isDefault && radarr.is4k === is4k
-        );
-      } else {
-        serviceSettings = settings.sonarr.find(
-          (sonarr) => sonarr.isDefault && sonarr.is4k === is4k
-        );
-      }
 
-      const specificServiceId = is4k ? media.serviceId4k : media.serviceId;
-      if (
-        specificServiceId &&
-        specificServiceId >= 0 &&
-        serviceSettings?.id !== specificServiceId
-      ) {
+      if (explicitServiceId !== undefined && explicitServiceId >= 0) {
+        // Caller specified exactly which service to delete from
+        serviceSettings = isMovie
+          ? settings.radarr.find((r) => r.id === explicitServiceId)
+          : settings.sonarr.find((s) => s.id === explicitServiceId);
+      } else {
         if (isMovie) {
           serviceSettings = settings.radarr.find(
-            (radarr) => radarr.id === specificServiceId
+            (radarr) => radarr.isDefault && radarr.is4k === is4k
           );
         } else {
           serviceSettings = settings.sonarr.find(
-            (sonarr) => sonarr.id === specificServiceId
+            (sonarr) => sonarr.isDefault && sonarr.is4k === is4k
           );
+        }
+
+        const specificServiceId = is4k ? media.serviceId4k : media.serviceId;
+        if (
+          specificServiceId &&
+          specificServiceId >= 0 &&
+          serviceSettings?.id !== specificServiceId
+        ) {
+          if (isMovie) {
+            serviceSettings = settings.radarr.find(
+              (radarr) => radarr.id === specificServiceId
+            );
+          } else {
+            serviceSettings = settings.sonarr.find(
+              (sonarr) => sonarr.id === specificServiceId
+            );
+          }
         }
       }
 
@@ -280,6 +294,30 @@ mediaRoutes.delete(
           throw new Error('TVDB ID not found');
         }
         await (service as SonarrAPI).removeSeries(tvdbId);
+      }
+
+      // For a per-service delete, clear only this service's tracking state so
+      // the media row (and every other service's availability) is preserved.
+      // The caller is expected NOT to follow up with a full media delete.
+      if (explicitServiceId !== undefined && explicitServiceId >= 0) {
+        await getRepository(MediaServiceStatus)
+          .createQueryBuilder()
+          .delete()
+          .where('mediaId = :mediaId', { mediaId: media.id })
+          .andWhere('serviceId = :serviceId', { serviceId: explicitServiceId })
+          .execute();
+
+        // Also remove this service's requests so the title can be requested
+        // in this service again (mirrors the full-media delete, scoped).
+        await getRepository(MediaRequest)
+          .createQueryBuilder()
+          .delete()
+          .where('mediaId = :mediaId', { mediaId: media.id })
+          .andWhere('serverId = :serviceId', { serviceId: explicitServiceId })
+          .andWhere('isServiceRequest = :isServiceRequest', {
+            isServiceRequest: true,
+          })
+          .execute();
       }
 
       return res.status(204).send();

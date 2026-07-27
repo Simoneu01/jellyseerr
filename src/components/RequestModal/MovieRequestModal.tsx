@@ -40,6 +40,7 @@ const messages = defineMessages('components.RequestModal', {
 interface RequestModalProps extends React.HTMLAttributes<HTMLDivElement> {
   tmdbId: number;
   is4k?: boolean;
+  serverId?: number;
   editRequest?: NonFunctionProperties<MediaRequest>;
   onCancel?: () => void;
   onComplete?: (newStatus: MediaStatus) => void;
@@ -53,6 +54,7 @@ const MovieRequestModal = ({
   onUpdating,
   editRequest,
   is4k = false,
+  serverId,
 }: RequestModalProps) => {
   const [isUpdating, setIsUpdating] = useState(false);
   const [requestOverrides, setRequestOverrides] =
@@ -94,6 +96,7 @@ const MovieRequestModal = ({
         mediaId: data?.id,
         mediaType: 'movie',
         is4k,
+        ...(serverId != null ? { serverId, isServiceRequest: true } : {}),
         ignoreQuota: requestOverrides?.ignoreQuota,
         ...overrideParams,
       });
@@ -138,6 +141,7 @@ const MovieRequestModal = ({
     data?.id,
     data?.title,
     is4k,
+    serverId,
     onComplete,
     addToast,
     intl,
@@ -290,11 +294,12 @@ const MovieRequestModal = ({
           <AdvancedRequester
             type="movie"
             is4k={is4k}
+            serverFixed={serverId != null}
             requestUser={editRequest.requestedBy}
             defaultOverrides={{
               folder: editRequest.rootFolder,
               profile: editRequest.profileId,
-              server: editRequest.serverId,
+              server: serverId ?? editRequest.serverId,
               tags: editRequest.tags,
             }}
             onChange={(overrides) => {
@@ -359,16 +364,29 @@ const MovieRequestModal = ({
         />
       )}
       {(hasPermission(Permission.REQUEST_ADVANCED) ||
-        hasPermission(Permission.MANAGE_REQUESTS)) && (
-        <AdvancedRequester
-          type="movie"
-          is4k={is4k}
-          quota={quota}
-          onChange={(overrides) => {
-            setRequestOverrides(overrides);
-          }}
-        />
-      )}
+        hasPermission(Permission.MANAGE_REQUESTS)) &&
+        (serverId != null ? (
+          // Per-service request: server is fixed by the button, only tags are editable
+          <AdvancedRequester
+            type="movie"
+            is4k={is4k}
+            quota={quota}
+            serverFixed
+            defaultOverrides={{ server: serverId }}
+            onChange={(overrides) => {
+              setRequestOverrides(overrides);
+            }}
+          />
+        ) : (
+          <AdvancedRequester
+            type="movie"
+            is4k={is4k}
+            quota={quota}
+            onChange={(overrides) => {
+              setRequestOverrides(overrides);
+            }}
+          />
+        ))}
     </Modal>
   );
 };

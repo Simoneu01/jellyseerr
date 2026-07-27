@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import { before, beforeEach, describe, it, mock } from 'node:test';
 
+import TheMovieDb from '@server/api/themoviedb';
+import type { TmdbMovieDetails } from '@server/api/themoviedb/interfaces';
 import {
   MediaRequestStatus,
   MediaStatus,
@@ -25,6 +27,20 @@ const sendNotificationMock = mock.method(
   'sendNotification',
   async () => undefined
 ).mock;
+
+// getMovie is an instance arrow-function property, so a prototype accessor
+// with a no-op setter is needed to intercept it (same pattern as the scanner
+// tests). Only the POST /request tests rely on it.
+let getMovieImpl: () => Promise<TmdbMovieDetails> = async () => {
+  throw new Error('getMovieImpl not configured');
+};
+Object.defineProperty(TheMovieDb.prototype, 'getMovie', {
+  set() {},
+  get() {
+    return async () => getMovieImpl();
+  },
+  configurable: true,
+});
 
 let app: Express;
 
@@ -533,5 +549,128 @@ describe('DELETE /request/:requestId, deleted media status restoration', () => {
 
     const updated = await mediaRepo.findOneOrFail({ where: { id: media.id } });
     assert.strictEqual(updated.status, MediaStatus.PARTIALLY_AVAILABLE);
+  });
+});
+
+describe('POST /request, per-service slots', () => {
+  beforeEach(() => {
+    getMovieImpl = async () =>
+      ({
+        id: 99901,
+        title: 'Test Movie',
+        release_date: '2024-01-01',
+        external_ids: {},
+        keywords: { keywords: [] },
+        genres: [],
+        original_language: 'en',
+      }) as unknown as TmdbMovieDetails;
+  });
+
+  async function grantServices(email: string, services: string[]) {
+    const userRepo = getRepository(User);
+    const user = await userRepo.findOneOrFail({ where: { email } });
+    user.requestServices = services;
+    await userRepo.save(user);
+  }
+
+  it('keeps service-specific requests in slots separate from the standard slot', async () => {
+    await grantServices('friend@seerr.dev', ['radarr:0', 'radarr:1']);
+    const friend = await loginAs('friend@seerr.dev', 'test1234');
+    const admin = await loginAs('admin@seerr.dev', 'test1234');
+
+    // A plain request occupies the standard slot.
+    const standard = await friend
+      .post('/request')
+      .send({ mediaType: 'movie', mediaId: 99901 });
+    assert.strictEqual(standard.status, 201);
+    assert.strictEqual(standard.body.isServiceRequest, false);
+
+    // An advanced request pinning a destination server still occupies the
+    // standard slot, so it is a duplicate of the request above.
+    const advanced = await admin
+      .post('/request')
+      .send({ mediaType: 'movie', mediaId: 99901, serverId: 0 });
+    assert.strictEqual(advanced.status, 409);
+
+    // A service-specific request occupies its own per-service slot.
+    const service = await friend.post('/request').send({
+      mediaType: 'movie',
+      mediaId: 99901,
+      serverId: 0,
+      isServiceRequest: true,
+    });
+    assert.strictEqual(service.status, 201);
+    assert.strictEqual(service.body.isServiceRequest, true);
+
+    // ...but only one request per service is allowed.
+    const duplicateService = await friend.post('/request').send({
+      mediaType: 'movie',
+      mediaId: 99901,
+      serverId: 0,
+      isServiceRequest: true,
+    });
+    assert.strictEqual(duplicateService.status, 409);
+
+    // A different service is a separate slot.
+    const otherService = await friend.post('/request').send({
+      mediaType: 'movie',
+      mediaId: 99901,
+      serverId: 1,
+      isServiceRequest: true,
+    });
+    assert.strictEqual(otherService.status, 201);
+  });
+
+  it('rejects a service request without a valid serverId', async () => {
+    const friend = await loginAs('friend@seerr.dev', 'test1234');
+
+    const res = await friend
+      .post('/request')
+      .send({ mediaType: 'movie', mediaId: 99901, isServiceRequest: true });
+    assert.strictEqual(res.status, 500);
+  });
+
+  it('rejects a service request to a service the user has no grant for', async () => {
+    await grantServices('friend@seerr.dev', ['radarr:1']);
+    const friend = await loginAs('friend@seerr.dev', 'test1234');
+
+    const res = await friend.post('/request').send({
+      mediaType: 'movie',
+      mediaId: 99901,
+      serverId: 0,
+      isServiceRequest: true,
+    });
+    assert.strictEqual(res.status, 403);
+  });
+
+  it('allows a manager to make service requests without explicit grants', async () => {
+    const admin = await loginAs('admin@seerr.dev', 'test1234');
+
+    const res = await admin.post('/request').send({
+      mediaType: 'movie',
+      mediaId: 99901,
+      serverId: 0,
+      isServiceRequest: true,
+    });
+    assert.strictEqual(res.status, 201);
+  });
+
+  it('does not claim the standard media status slot', async () => {
+    await grantServices('friend@seerr.dev', ['radarr:0']);
+    const friend = await loginAs('friend@seerr.dev', 'test1234');
+
+    const res = await friend.post('/request').send({
+      mediaType: 'movie',
+      mediaId: 99901,
+      serverId: 0,
+      isServiceRequest: true,
+    });
+    assert.strictEqual(res.status, 201);
+
+    const media = await getRepository(Media).findOneOrFail({
+      where: { tmdbId: 99901, mediaType: MediaType.MOVIE },
+    });
+    assert.strictEqual(media.status, MediaStatus.UNKNOWN);
+    assert.strictEqual(media.status4k, MediaStatus.UNKNOWN);
   });
 });

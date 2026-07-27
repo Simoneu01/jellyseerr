@@ -709,7 +709,10 @@ userSettingsRoutes.post<{ id: string }, UserSettingsNotificationsResponse>(
   }
 );
 
-userSettingsRoutes.get<{ id: string }, { permissions?: number }>(
+userSettingsRoutes.get<
+  { id: string },
+  { permissions?: number; requestServices?: string[] }
+>(
   '/permissions',
   isAuthenticated(Permission.MANAGE_USERS),
   async (req, res, next) => {
@@ -724,7 +727,10 @@ userSettingsRoutes.get<{ id: string }, { permissions?: number }>(
         return next({ status: 404, message: 'User not found.' });
       }
 
-      return res.status(200).json({ permissions: user.permissions });
+      return res.status(200).json({
+        permissions: user.permissions,
+        requestServices: user.requestServices ?? [],
+      });
     } catch (e) {
       next({ status: 500, message: e.message });
     }
@@ -733,8 +739,8 @@ userSettingsRoutes.get<{ id: string }, { permissions?: number }>(
 
 userSettingsRoutes.post<
   { id: string },
-  { permissions?: number },
-  { permissions: number }
+  { permissions?: number; requestServices?: string[] },
+  { permissions: number; requestServices?: string[] }
 >(
   '/permissions',
   isAuthenticated(Permission.MANAGE_USERS),
@@ -766,9 +772,19 @@ userSettingsRoutes.post<
       }
       user.permissions = req.body.permissions;
 
+      if (req.body.requestServices !== undefined) {
+        // Only keep well-formed "radarr:<id>" / "sonarr:<id>" entries
+        user.requestServices = req.body.requestServices.filter((s) =>
+          /^(radarr|sonarr):\d+$/.test(s)
+        );
+      }
+
       await userRepository.save(user);
 
-      return res.status(200).json({ permissions: user.permissions });
+      return res.status(200).json({
+        permissions: user.permissions,
+        requestServices: user.requestServices ?? [],
+      });
     } catch (e) {
       next({ status: 500, message: e.message });
     }

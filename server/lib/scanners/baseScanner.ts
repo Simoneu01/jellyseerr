@@ -7,7 +7,9 @@ import {
 import { getRepository } from '@server/datasource';
 import Media from '@server/entity/Media';
 import MediaRequest from '@server/entity/MediaRequest';
+import MediaServiceStatus from '@server/entity/MediaServiceStatus';
 import Season from '@server/entity/Season';
+import { upsertMediaServiceStatus } from '@server/lib/mediaServiceStatus';
 import { getSettings } from '@server/lib/settings';
 import logger from '@server/logger';
 import AsyncLock from '@server/utils/asyncLock';
@@ -211,6 +213,24 @@ class BaseScanner<T> {
         } else {
           this.log(`Title already exists and no changes detected for ${title}`);
         }
+
+        // Update per-service availability tracking
+        if (serviceId !== undefined) {
+          const serviceStatus =
+            !processing && hasFile
+              ? MediaStatus.AVAILABLE
+              : processing
+                ? MediaStatus.PROCESSING
+                : MediaStatus.UNKNOWN;
+          await this.upsertServiceStatus(
+            existing.id,
+            serviceId,
+            'radarr',
+            serviceStatus,
+            externalServiceId,
+            externalServiceSlug
+          );
+        }
       } else {
         if (!processing && !hasFile) {
           return;
@@ -258,6 +278,24 @@ class BaseScanner<T> {
 
         await mediaRepository.save(newMedia);
         this.log(`Saved new media: ${title}`);
+
+        // Record per-service availability for the new media entry
+        if (serviceId !== undefined && newMedia.id) {
+          const serviceStatus =
+            !processing && hasFile
+              ? MediaStatus.AVAILABLE
+              : processing
+                ? MediaStatus.PROCESSING
+                : MediaStatus.UNKNOWN;
+          await this.upsertServiceStatus(
+            newMedia.id,
+            serviceId,
+            'radarr',
+            serviceStatus,
+            externalServiceId,
+            externalServiceSlug
+          );
+        }
       }
     });
   }
@@ -541,6 +579,24 @@ class BaseScanner<T> {
                   : MediaStatus.UNKNOWN;
         await mediaRepository.save(media);
         this.log(`Updating existing title: ${title}`);
+
+        // Update per-service availability for this Sonarr instance, computed
+        // from this server's own season data (not the combined media.status).
+        if (serviceId !== undefined) {
+          const { overall, perSeason } = this.computeSeasonServiceStatuses(
+            seasons,
+            is4k
+          );
+          await this.upsertServiceStatus(
+            media.id,
+            serviceId,
+            'sonarr',
+            overall,
+            externalServiceId,
+            externalServiceSlug,
+            perSeason
+          );
+        }
       } else {
         // For new media, check actual newSeasons objects instead of scanner
         // input to determine overall availability status
@@ -638,6 +694,24 @@ class BaseScanner<T> {
         });
         await mediaRepository.save(newMedia);
         this.log(`Saved ${title}`);
+
+        // Record per-service availability for the new TV media entry, computed
+        // from this server's own season data (not the combined media.status).
+        if (serviceId !== undefined && newMedia.id) {
+          const { overall, perSeason } = this.computeSeasonServiceStatuses(
+            seasons,
+            is4k
+          );
+          await this.upsertServiceStatus(
+            newMedia.id,
+            serviceId,
+            'sonarr',
+            overall,
+            externalServiceId,
+            externalServiceSlug,
+            perSeason
+          );
+        }
       }
     });
   }
@@ -783,6 +857,227 @@ class BaseScanner<T> {
     optional?: Record<string, unknown>
   ): void {
     logger[level](message, { label: this.scannerName, ...optional });
+  }
+
+  /**
+   * Computes the availability status of a TV title within a single service,
+   * using only that server's per-season episode counts. Returns both the
+   * overall (rolled-up) status and a per-season status map so the frontend can
+   * show per-service badges at both the show and season level.
+   *
+   * Using the per-server season data (rather than media.status) is essential:
+   * media.status reflects the combined state across ALL servers, so a title
+   * available in one Sonarr instance would otherwise leak that status into
+   * every other instance.
+   */
+  protected computeSeasonServiceStatuses(
+    seasons: ProcessableSeason[],
+    is4k: boolean
+  ): { overall: MediaStatus; perSeason: Record<number, MediaStatus> } {
+    const episodeField = is4k ? 'episodes4k' : 'episodes';
+    const perSeason: Record<number, MediaStatus> = {};
+
+    const statusForSeason = (s: ProcessableSeason): MediaStatus => {
+      if (s.totalEpisodes > 0 && s[episodeField] === s.totalEpisodes) {
+        return MediaStatus.AVAILABLE;
+      }
+      if (s[episodeField] > 0) {
+        return MediaStatus.PARTIALLY_AVAILABLE;
+      }
+      if (s.processing) {
+        return MediaStatus.PROCESSING;
+      }
+      return MediaStatus.UNKNOWN;
+    };
+
+    for (const s of seasons) {
+      const status = statusForSeason(s);
+      // Only record seasons that this server actually has/knows about
+      if (status !== MediaStatus.UNKNOWN) {
+        perSeason[s.seasonNumber] = status;
+      }
+    }
+
+    const relevant = seasons.filter(
+      (s) => s.seasonNumber !== 0 && s.totalEpisodes > 0
+    );
+
+    let overall: MediaStatus;
+    if (relevant.length === 0) {
+      overall = MediaStatus.UNKNOWN;
+    } else if (
+      relevant.every(
+        (s) => s[episodeField] === s.totalEpisodes && s[episodeField] > 0
+      )
+    ) {
+      overall = MediaStatus.AVAILABLE;
+    } else if (relevant.some((s) => s[episodeField] > 0)) {
+      overall = MediaStatus.PARTIALLY_AVAILABLE;
+    } else if (relevant.some((s) => s.processing)) {
+      overall = MediaStatus.PROCESSING;
+    } else {
+      overall = MediaStatus.UNKNOWN;
+    }
+
+    return { overall, perSeason };
+  }
+
+  protected async upsertServiceStatus(
+    mediaId: number,
+    serviceId: number,
+    serviceType: 'radarr' | 'sonarr',
+    status: MediaStatus,
+    externalServiceId: number | undefined,
+    externalServiceSlug: string | undefined,
+    seasonStatuses: Record<number, MediaStatus> | null = null
+  ): Promise<void> {
+    const repo = getRepository(MediaServiceStatus);
+    // Scans own the per-season data, so they overwrite seasonStatuses too.
+    await upsertMediaServiceStatus(
+      repo,
+      {
+        mediaId,
+        serviceId,
+        serviceType,
+        status,
+        externalServiceId: externalServiceId ?? null,
+        externalServiceSlug: externalServiceSlug ?? null,
+        seasonStatuses,
+      },
+      ['status', 'externalServiceId', 'externalServiceSlug', 'seasonStatuses']
+    );
+
+    // Service requests aren't completed by the media subscriber (their
+    // availability isn't reflected in media.status), so the scan is the
+    // signal that the service now has the title.
+    if (
+      status === MediaStatus.AVAILABLE ||
+      Object.values(seasonStatuses ?? {}).some(
+        (seasonStatus) => seasonStatus === MediaStatus.AVAILABLE
+      )
+    ) {
+      await this.completeAvailableServiceRequests(
+        mediaId,
+        serviceId,
+        status,
+        seasonStatuses
+      );
+    }
+  }
+
+  /**
+   * Transitions this service's APPROVED service-specific requests to
+   * COMPLETED once the title (movies) or every requested season (TV) is
+   * available in the service. Requests are saved through the repository so
+   * the MediaRequest subscriber fires the availability notification.
+   */
+  private async completeAvailableServiceRequests(
+    mediaId: number,
+    serviceId: number,
+    status: MediaStatus,
+    seasonStatuses: Record<number, MediaStatus> | null
+  ): Promise<void> {
+    const requestRepository = getRepository(MediaRequest);
+    const approvedRequests = await requestRepository.find({
+      where: {
+        media: { id: mediaId },
+        serverId: serviceId,
+        isServiceRequest: true,
+        status: MediaRequestStatus.APPROVED,
+      },
+    });
+
+    for (const request of approvedRequests) {
+      const isComplete =
+        request.type === MediaType.MOVIE
+          ? status === MediaStatus.AVAILABLE
+          : request.seasons.length > 0 &&
+            request.seasons.every(
+              (season) =>
+                seasonStatuses?.[season.seasonNumber] === MediaStatus.AVAILABLE
+            );
+
+      if (isComplete) {
+        request.status = MediaRequestStatus.COMPLETED;
+        await requestRepository.save(request);
+        this.log(
+          `Service request ${request.id} marked as completed (service ${serviceId})`,
+          'info'
+        );
+      }
+    }
+  }
+
+  /**
+   * Resets this server's MediaServiceStatus rows for titles that were NOT
+   * seen during the scan that just finished (i.e. they were removed from the
+   * server). Rows already UNKNOWN or DELETED are left alone.
+   *
+   * The diff is computed in memory and the updates are issued by primary key
+   * in chunks: passing the scanned id set as bound `IN (...)` parameters
+   * would exceed SQLite/Postgres parameter limits on large libraries.
+   *
+   * NOTE: Radarr and Sonarr server IDs are independent sequences (both start
+   * at 0), so candidates MUST be scoped by serviceType — otherwise a Radarr
+   * reset would clobber Sonarr rows sharing the same numeric serviceId.
+   * `clearSeasonStatuses` keeps the per-season map in sync with the overall
+   * status for Sonarr so the two can never diverge.
+   */
+  protected async resetStaleServiceStatus({
+    serviceId,
+    serviceType,
+    mediaType,
+    seenTmdbIds,
+    serverName,
+    clearSeasonStatuses = false,
+  }: {
+    serviceId: number;
+    serviceType: 'radarr' | 'sonarr';
+    mediaType: MediaType;
+    seenTmdbIds: Set<number>;
+    serverName: string;
+    clearSeasonStatuses?: boolean;
+  }): Promise<void> {
+    const serviceStatusRepository = getRepository(MediaServiceStatus);
+
+    const candidates: { id: number; tmdbId: number }[] =
+      await serviceStatusRepository
+        .createQueryBuilder('serviceStatus')
+        .innerJoin(Media, 'media', 'media.id = serviceStatus.mediaId')
+        .select('serviceStatus.id', 'id')
+        .addSelect('media.tmdbId', 'tmdbId')
+        .where('serviceStatus.serviceId = :serviceId', { serviceId })
+        .andWhere('serviceStatus.serviceType = :serviceType', { serviceType })
+        .andWhere('serviceStatus.status NOT IN (:...exempt)', {
+          exempt: [MediaStatus.UNKNOWN, MediaStatus.DELETED],
+        })
+        .andWhere('media.mediaType = :mediaType', { mediaType })
+        .getRawMany();
+
+    const staleIds = candidates
+      .filter((candidate) => !seenTmdbIds.has(Number(candidate.tmdbId)))
+      .map((candidate) => candidate.id);
+
+    const chunkSize = 500;
+    for (let i = 0; i < staleIds.length; i += chunkSize) {
+      await serviceStatusRepository
+        .createQueryBuilder()
+        .update()
+        .set(
+          clearSeasonStatuses
+            ? { status: MediaStatus.UNKNOWN, seasonStatuses: null }
+            : { status: MediaStatus.UNKNOWN }
+        )
+        .whereInIds(staleIds.slice(i, i + chunkSize))
+        .execute();
+    }
+
+    this.log(
+      `Reset ${staleIds.length} stale service status entries for ${serverName} (${
+        candidates.length - staleIds.length
+      } items retained)`,
+      'info'
+    );
   }
 
   get protectedUpdateRate(): number {

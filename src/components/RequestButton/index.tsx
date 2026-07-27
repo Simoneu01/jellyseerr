@@ -13,10 +13,11 @@ import {
 import { MediaRequestStatus, MediaStatus } from '@server/constants/media';
 import type Media from '@server/entity/Media';
 import type { MediaRequest } from '@server/entity/MediaRequest';
+import type { ServiceCommonServer } from '@server/interfaces/api/serviceInterfaces';
 import axios from 'axios';
 import { useMemo, useState } from 'react';
 import { useIntl } from 'react-intl';
-import { mutate } from 'swr';
+import useSWR, { mutate } from 'swr';
 
 const messages = defineMessages('components.RequestButton', {
   viewrequest: 'View Request',
@@ -35,6 +36,10 @@ const messages = defineMessages('components.RequestButton', {
     'Approve {requestCount, plural, one {4K Request} other {{requestCount} 4K Requests}}',
   decline4krequests:
     'Decline {requestCount, plural, one {4K Request} other {{requestCount} 4K Requests}}',
+  requestinservice: 'Request in {label}',
+  viewrequestinservice: 'View Request in {label}',
+  approverequestinservice: 'Approve Request in {label}',
+  declinerequestinservice: 'Decline Request in {label}',
 });
 
 interface ButtonOption {
@@ -51,6 +56,7 @@ interface RequestButtonProps {
   media?: Media;
   isShowComplete?: boolean;
   is4kShowComplete?: boolean;
+  isAnime?: boolean;
 }
 
 const RequestButton = ({
@@ -60,6 +66,7 @@ const RequestButton = ({
   mediaType,
   isShowComplete = false,
   is4kShowComplete = false,
+  isAnime = false,
 }: RequestButtonProps) => {
   const intl = useIntl();
   const settings = useSettings();
@@ -67,13 +74,28 @@ const RequestButton = ({
   const [showRequestModal, setShowRequestModal] = useState(false);
   const [showRequest4kModal, setShowRequest4kModal] = useState(false);
   const [editRequest, setEditRequest] = useState(false);
+  const [activeServiceModal, setActiveServiceModal] = useState<{
+    serverId: number | null;
+    show: boolean;
+  }>({ serverId: null, show: false });
 
-  // All pending requests
+  const serviceEndpoint =
+    mediaType === 'movie' ? '/api/v1/service/radarr' : '/api/v1/service/sonarr';
+  const { data: allServices } = useSWR<ServiceCommonServer[]>(serviceEndpoint);
+
+  // All pending requests occupying the Standard/4K slots (service-specific
+  // requests live in their own per-service slots and are handled below)
   const activeRequests = media?.requests.filter(
-    (request) => request.status === MediaRequestStatus.PENDING && !request.is4k
+    (request) =>
+      request.status === MediaRequestStatus.PENDING &&
+      !request.is4k &&
+      !request.isServiceRequest
   );
   const active4kRequests = media?.requests.filter(
-    (request) => request.status === MediaRequestStatus.PENDING && request.is4k
+    (request) =>
+      request.status === MediaRequestStatus.PENDING &&
+      request.is4k &&
+      !request.isServiceRequest
   );
 
   // Current user's pending request, or the first pending request
@@ -267,8 +289,19 @@ const RequestButton = ({
     }
   }
 
+  // When a (non-managing) user has been granted specific request services
+  // for this media type, the default request button is replaced entirely by
+  // their per-service buttons. Grants for the other media type don't count —
+  // a user with only Radarr grants still gets the default button on TV pages.
+  const servicePrefix = mediaType === 'movie' ? 'radarr' : 'sonarr';
+  const restrictToServices =
+    (user?.requestServices ?? []).some((service) =>
+      service.startsWith(`${servicePrefix}:`)
+    ) && !hasPermission(Permission.MANAGE_REQUESTS);
+
   // Standard request button
   if (
+    !restrictToServices &&
     (!media ||
       media.status === MediaStatus.UNKNOWN ||
       (media.status === MediaStatus.DELETED && !activeRequest)) &&
@@ -292,6 +325,7 @@ const RequestButton = ({
       svg: <ArrowDownTrayIcon />,
     });
   } else if (
+    !restrictToServices &&
     mediaType === 'tv' &&
     (!activeRequest || activeRequest.requestedBy.id !== user?.id) &&
     hasPermission([Permission.REQUEST, Permission.REQUEST_TV], {
@@ -314,6 +348,7 @@ const RequestButton = ({
 
   // 4K request button
   if (
+    !restrictToServices &&
     (!media ||
       media.status4k === MediaStatus.UNKNOWN ||
       (media.status4k === MediaStatus.DELETED && !active4kRequest)) &&
@@ -339,6 +374,7 @@ const RequestButton = ({
       svg: <ArrowDownTrayIcon />,
     });
   } else if (
+    !restrictToServices &&
     mediaType === 'tv' &&
     (!active4kRequest || active4kRequest.requestedBy.id !== user?.id) &&
     hasPermission([Permission.REQUEST_4K, Permission.REQUEST_4K_TV], {
@@ -360,7 +396,142 @@ const RequestButton = ({
     });
   }
 
+  // Per-service request buttons: show a button for every configured service that has a buttonLabel set
+  const labelledServices = (allServices ?? []).filter((s) => s.buttonLabel);
+
+  for (const service of labelledServices) {
+    // Anime-only services only expose their button for anime content
+    if (service.animeOnly && !isAnime) {
+      continue;
+    }
+
+    // Hide the request button if the media already exists in this service
+    // (available, processing/downloading, or partially available)
+    const serviceStatusEntry = media?.serviceStatuses?.find(
+      (ss) => ss.serviceId === service.id
+    );
+    if (
+      serviceStatusEntry &&
+      serviceStatusEntry.status !== MediaStatus.UNKNOWN &&
+      serviceStatusEntry.status !== MediaStatus.DELETED
+    ) {
+      continue;
+    }
+
+    // Per-service access control: a user only sees a service's request button
+    // if they manage requests, or the service is in their allowed list.
+    const serviceIdentifier = `${servicePrefix}:${service.id}`;
+    const canUseService =
+      hasPermission(Permission.MANAGE_REQUESTS) ||
+      (user?.requestServices ?? []).includes(serviceIdentifier);
+
+    const activeServiceRequests = media?.requests.filter(
+      (r) =>
+        r.isServiceRequest &&
+        r.serverId === service.id &&
+        r.status === MediaRequestStatus.PENDING
+    );
+    const userServiceRequest = activeServiceRequests?.find(
+      (r) => r.requestedBy.id === user?.id
+    );
+
+    // Hide the service entirely if the user can't use it and has no pending
+    // request of their own to view/cancel.
+    if (!canUseService && !userServiceRequest) {
+      continue;
+    }
+
+    if (
+      userServiceRequest ||
+      (activeServiceRequests &&
+        activeServiceRequests.length > 0 &&
+        hasPermission(Permission.MANAGE_REQUESTS))
+    ) {
+      buttons.push({
+        id: `view-service-${service.id}`,
+        text: intl.formatMessage(messages.viewrequestinservice, {
+          label: service.buttonLabel,
+        }),
+        action: () => {
+          setEditRequest(true);
+          setActiveServiceModal({ serverId: service.id, show: true });
+        },
+        svg: <InformationCircleIcon />,
+      });
+
+      // Managers get inline approve/decline for this service's pending
+      // requests, mirroring the standard request button's dropdown entries.
+      if (
+        activeServiceRequests &&
+        activeServiceRequests.length > 0 &&
+        hasPermission(Permission.MANAGE_REQUESTS)
+      ) {
+        buttons.push(
+          {
+            id: `approve-service-${service.id}`,
+            text: intl.formatMessage(messages.approverequestinservice, {
+              label: service.buttonLabel,
+            }),
+            action: () => {
+              modifyRequests(activeServiceRequests, 'approve');
+            },
+            svg: <CheckIcon />,
+          },
+          {
+            id: `decline-service-${service.id}`,
+            text: intl.formatMessage(messages.declinerequestinservice, {
+              label: service.buttonLabel,
+            }),
+            action: () => {
+              modifyRequests(activeServiceRequests, 'decline');
+            },
+            svg: <XMarkIcon />,
+          }
+        );
+      }
+    } else if (
+      hasPermission(
+        [
+          Permission.REQUEST,
+          mediaType === 'movie'
+            ? Permission.REQUEST_MOVIE
+            : Permission.REQUEST_TV,
+        ],
+        { type: 'or' }
+      )
+    ) {
+      buttons.push({
+        id: `request-service-${service.id}`,
+        text: intl.formatMessage(messages.requestinservice, {
+          label: service.buttonLabel,
+        }),
+        action: () => {
+          setEditRequest(false);
+          setActiveServiceModal({ serverId: service.id, show: true });
+        },
+        svg: <ArrowDownTrayIcon />,
+      });
+    }
+  }
+
   const [buttonOne, ...others] = buttons;
+
+  // Pending request for the service targeted by the per-service modal:
+  // the user's own request if they have one, otherwise the first pending one
+  // (only reachable by users with MANAGE_REQUESTS).
+  const pendingServiceRequests =
+    activeServiceModal.serverId !== null
+      ? media?.requests.filter(
+          (request) =>
+            request.isServiceRequest &&
+            request.status === MediaRequestStatus.PENDING &&
+            request.serverId === activeServiceModal.serverId
+        )
+      : undefined;
+  const activeServiceRequest =
+    pendingServiceRequests?.find(
+      (request) => request.requestedBy.id === user?.id
+    ) ?? pendingServiceRequests?.[0];
 
   if (!buttonOne) {
     return null;
@@ -391,6 +562,22 @@ const RequestButton = ({
         }}
         onCancel={() => setShowRequest4kModal(false)}
       />
+      {activeServiceModal.show && activeServiceModal.serverId !== null && (
+        <RequestModal
+          tmdbId={tmdbId}
+          show={activeServiceModal.show}
+          type={mediaType}
+          serverId={activeServiceModal.serverId}
+          editRequest={editRequest ? activeServiceRequest : undefined}
+          onComplete={() => {
+            onUpdate();
+            setActiveServiceModal({ serverId: null, show: false });
+          }}
+          onCancel={() =>
+            setActiveServiceModal({ serverId: null, show: false })
+          }
+        />
+      )}
       <ButtonWithDropdown
         text={
           <>

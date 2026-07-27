@@ -1263,6 +1263,9 @@ components:
           example: false
         serverId:
           type: number
+        isServiceRequest:
+          type: boolean
+          example: false
         profileId:
           type: number
         rootFolder:
@@ -6512,6 +6515,10 @@ paths:
                   example: false
                 serverId:
                   type: number
+                isServiceRequest:
+                  type: boolean
+                  example: false
+                  description: Set to true when explicitly requesting in a specific service via a per-service request button. Requires a valid serverId.
                 profileId:
                   type: number
                 rootFolder:
